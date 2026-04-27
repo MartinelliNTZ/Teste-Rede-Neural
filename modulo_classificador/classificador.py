@@ -1,5 +1,5 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+
 """
 Módulo de Classificação de Imagens Raster com Redes Neurais
 ============================================================
@@ -17,7 +17,7 @@ import os
 import sys
 import json
 from typing import List, Tuple, Optional
-
+from pathlib import Path
 import numpy as np
 import pandas as pd
 import geopandas as gpd
@@ -295,13 +295,14 @@ class ClassificadorRaster:
             pred = np.round(pred).astype(int).flatten()
         else:
             pred = np.argmax(pred, axis=1)
-
+        print(f"Iniciando mescla.")
         # mescla de volta ao DataFrame completo
         df_pred["pred"] = pred
         df = pd.merge(df, df_pred, how="left", left_index=True, right_index=True)
-
+        print(f"Reorganizando resultado para formato de imagem...")
         # reorganiza para (1, altura, largura)
         classify = df["pred"].values.reshape(self.img_size)
+        print(f"Mescla concluída. Exportando resultado...")
         self.export_image = classify[np.newaxis, :, :].astype("float64")
         print("[OK] Predição na imagem completa concluída.")
 
@@ -333,18 +334,17 @@ class ClassificadorRaster:
 # ---------------------------------------------------------------------------
 
 def main():
-    # ===================================================================
-    # CONFIGURAÇÃO — ALTERE AQUI PARA SEUS DADOS
-    # ===================================================================
+    BASE = Path(__file__).resolve().parent
+
     config = {
-        "path_img": "./dados/imagem.tif",                       # imagem raster
+        "path_img": BASE / "dados" / "imagem.tif",
         "shapefiles": [
-            ("./dados/solo.shp", 0),                             # (arquivo, id_classe)
-            ("./dados/vegetacao.shp", 1),
+            (BASE / "dados" / "solo.shp", 0),
+            (BASE / "dados" / "vegetacao.shp", 1),
         ],
-        "path_img_teste": "./dados/imagem.tif",                  # imagem a classificar (pode ser a mesma)
-        "path_saida": "./resultado/mapa_classificado.tif",       # arquivo de saída
-        "usar_mascara": False,                                   # True se houver banda alpha
+        "path_img_teste": BASE / "dados" / "imagem.tif",
+        "path_saida": BASE / "resultado" / "mapa_classificado.tif",
+        "usar_mascara": False,
         "test_size": 0.3,
         "random_state": 42,
         "epochs": 100,
