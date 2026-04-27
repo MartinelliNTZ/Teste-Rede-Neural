@@ -1,0 +1,12 @@
+numpy
+pandas
+geopandas
+rasterio
+scikit-learn
+tensorflow
+matplotlib
+seaborn
+opencv-python
+shapely
+pylab
+
