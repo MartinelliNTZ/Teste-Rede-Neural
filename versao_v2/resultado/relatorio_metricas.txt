@@ -1,0 +1,13 @@
+RELATORIO DE METRICAS — Classificador Raster v5
+============================================================
+
+Imagem de treino       : D:\teste\versao_v2\dados\imagemTreino.tif
+Imagem classificada    : D:\teste\versao_v2\dados\imagemCompleta.tif
+Acuracia global        : 0.8376 (83.76%)
+
+Classe                   Precisao     Recall         F1    Suporte
+--------------------------------------------------------------
+solo                       0.9762     0.9880     0.9820         83
+floresta                   0.7945     0.7436     0.7682         78
+palhada                    0.8947     0.8947     0.8947         19
+daninhas                   0.6724     0.7222     0.6964         54

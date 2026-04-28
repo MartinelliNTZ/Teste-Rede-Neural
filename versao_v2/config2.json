@@ -21,14 +21,13 @@
 
   "path_img"            : "dados/imagemFull.tif",
   "path_img_teste"      : "dados/imagemFull.tif",
-  "path_saida"          : "resultado/mapa_classificadov5class_3.tif",
+  "path_saida"          : "resultado/mapa_classificadov4class_4.tif",
 
   "shapefiles": [
     ["dados/solo.shp",      0],
     ["dados/vegetacao.shp", 1],
     ["dados/palhada.shp",   2],
-    ["dados/agua.shp",      3],
-    ["dados/daninhas.shp",  4]
+    ["dados/daninhas.shp",  3]
   ],
 
   "usar_mascara"        : true,
