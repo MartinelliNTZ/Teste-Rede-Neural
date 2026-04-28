@@ -9,26 +9,26 @@
     "ram_limite_pct"      : "Percentual máximo de RAM a usar, ex: 70 = 70% da RAM total",
     "test_size"           : "Fração dos dados para teste, ex: 0.3 = 30%",
     "random_state"        : "Semente aleatória (qualquer inteiro; garante reprodutibilidade)",
-    "epochs"              : "Máximo de épocas de treino (EarlyStopping pode parar antes)",
-    "batch_size_treino"   : "Batch do treinamento — 512 ou 1024 são bons ponto de partida",
+    "epochs"              : "Máximo de épocas de treino",
+    "batch_size_treino"   : "Menor que total de amostras de treino para ver dados em vários steps",
     "batch_size_predicao" : "Batch da predição — pode ser bem maior (4096, 8192)",
-    "camadas_ocultas"     : "Neurônios por camada oculta, ex: [256, 128, 64, 8]",
+    "camadas_ocultas"     : "Reduzida proporcionalmente ao volume de dados para evitar overfitting",
     "activation"          : "Função de ativação das camadas ocultas: relu, elu, tanh",
-    "dropout_rate"        : "Dropout entre 0.0 (sem dropout) e 0.5 (50% dos neurônios desligados)",
+    "dropout_rate"        : "Pequeno dropout para regularização",
     "salvar_modelo"       : "true = salva o modelo treinado em disco para reutilização futura",
     "path_modelo"         : "Onde salvar/carregar o modelo (.keras)"
   },
 
   "path_img"            : "dados/imagemFull.tif",
   "path_img_teste"      : "dados/imagemFull.tif",
-  "path_saida"          : "resultado/mapa_classificadov5class.tif",
+  "path_saida"          : "resultado/mapa_classificadov5class_3.tif",
 
   "shapefiles": [
-    ["dados/solo.shp", 0],  
+    ["dados/solo.shp",      0],
     ["dados/vegetacao.shp", 1],
-    ["dados/palhada.shp", 2],
-    ["dados/agua.shp", 3],
-    ["dados/daninhas.shp", 4]
+    ["dados/palhada.shp",   2],
+    ["dados/agua.shp",      3],
+    ["dados/daninhas.shp",  4]
   ],
 
   "usar_mascara"        : true,
@@ -39,13 +39,13 @@
   "test_size"           : 0.3,
   "random_state"        : 42,
 
-  "epochs"              : 100,
-  "batch_size_treino"   : 512,
+  "epochs"              : 150,
+  "batch_size_treino"   : 64,
   "batch_size_predicao" : 4096,
 
-  "camadas_ocultas"     : [256, 128, 64, 8],
+  "camadas_ocultas"     : [128, 64, 32],
   "activation"          : "relu",
-  "dropout_rate"        : 0.0,
+  "dropout_rate"        : 0.1,
 
   "salvar_modelo"       : true,
   "path_modelo"         : "resultado/modelo.keras"

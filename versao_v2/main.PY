@@ -65,15 +65,16 @@ CONFIG = {
     "path_img": "dados/imagemFull.tif",
 
     # Imagem a ser CLASSIFICADA (pode ser a mesma que path_img)
-    "path_img_teste": "dados/imagem.tif",
+    "path_img_teste": "dados/imagemFull.tif",
 
     # Onde salvar o GeoTIFF classificado
     "path_saida": "resultado/mapa_classificado.tif",
 
     # Amostras: [caminho_shapefile, id_classe]
     "shapefiles": [
-        ["dados/solo.shp", 0],
+        ["dados/solo.shp", 0],  
         ["dados/vegetacao.shp", 1],
+        ["dados/palhada.shp", 2]
     ],
 
     # Máscara: true = filtra pixels pela última banda (canal alpha)
