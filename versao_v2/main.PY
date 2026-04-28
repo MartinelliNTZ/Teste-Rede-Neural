@@ -1,36 +1,34 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Classificador Raster com Redes Neurais — v4
+Classificador Raster com Redes Neurais — v5
 ============================================
-Combina a CORRETUDE da v1 (sem normalização, que já funcionava) com
-a eficiência de memória da v2/v3 (predição em chunks, sem Pandas).
+Melhorias em relação à v4:
+  - Config embutido completo (incluindo dropout_rate), sem necessidade de JSON externo
+  - Suporte real a DUAS imagens distintas: uma pequena para treino e outra completa para classificação
+  - Exibição detalhada de pontos por shapefile e precisão por classe
+  - Dropout nas camadas ocultas para regularização
+  - Relatório final expandido com métricas por classe
 
-Por que sem normalização?
-  A v1 classificava corretamente sem normalizar. A tentativa de
-  normalizar na v2/v3 introduziu um bug grave: a banda com desvio
-  padrão zero (ex: banda alpha constante = 255) gera divisão por ~0,
-  produzindo NaN/Inf e destruindo a classificação.
-  Para dados espectrais em faixa 0-255, a rede aprende bem sem
-  normalização — como provado pela v1.
-
-Uso (edite CONFIG abaixo e execute):
-    python classificador_v4.py
-
-Ou via CLI:
-    python classificador_v4.py --imagem dados/img.tif \
-        --shapefile dados/solo.shp,0 --shapefile dados/veg.shp,1
-
-Ou via JSON externo (sobrescreve CONFIG embutido):
-    python classificador_v4.py --config meu_config.json
+Estrutura de pastas esperada (relativa ao script):
+    classificador_v5.py
+    dados/
+        imagemFull.tif         ← imagem completa a classificar
+        imagemTreino.tif       ← imagem pequena para extração de amostras
+        solo.shp (+ .dbf .shx .prj)
+        vegetacao.shp
+        palhada.shp
+        daninhas.shp
+    resultado/
+        (criado automaticamente)
 """
 
 import os
 import sys
-import json
 import time
 import math
 import argparse
+from pathlib import Path
 from typing import List, Tuple, Optional
 
 import numpy as np
@@ -46,66 +44,125 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
 
 import tensorflow as tf
-from tensorflow import keras
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense
+from tensorflow.keras.layers import Dense, Dropout
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
+# ─── Diretório base = pasta onde este script está ───────────────────────────
+BASE_DIR = Path(__file__).resolve().parent
+
 
 # ═══════════════════════════════════════════════════════════════════════════
-# CONFIG EMBUTIDO — edite aqui e execute sem argumentos
+# CONFIG EMBUTIDO
+# Edite aqui. Todos os caminhos são RELATIVOS à pasta do script.
 # ═══════════════════════════════════════════════════════════════════════════
 
 CONFIG = {
-    # Imagem usada para EXTRAIR AMOSTRAS (treino)
-    "path_img": "dados/imagemFull.tif",
+    # ── Imagens ──────────────────────────────────────────────────────────
+    # Imagem usada para EXTRAIR AMOSTRAS (pode ser um recorte menor)
+    "path_img": "dados/imagemTreino.tif",
 
-    # Imagem a ser CLASSIFICADA (pode ser a mesma que path_img)
-    "path_img_teste": "dados/imagemFull.tif",
+    # Imagem a ser CLASSIFICADA (pode ser a mesma ou a versão completa)
+    "path_img_teste": "dados/imagemCompleta.tif",
 
     # Onde salvar o GeoTIFF classificado
-    "path_saida": "resultado/mapa_classificado.tif",
+    "path_saida": "resultado/mapa_classificado_CLAUDECODE_V2ALPHA250.tif",
 
-    # Amostras: [caminho_shapefile, id_classe]
+    # ── Amostras ─────────────────────────────────────────────────────────
+    # Cada entrada: [caminho_shapefile, id_classe]
     "shapefiles": [
-        ["dados/solo.shp", 0],  
-        ["dados/vegetacao.shp", 1],
-        ["dados/palhada.shp", 2]
+        ["dados/solo.shp",       0],
+        ["dados/floresta.shp",  1],
+        ["dados/palhada.shp",    2],
+        ["dados/daninhas.shp",   3],
     ],
 
-    # Máscara: true = filtra pixels pela última banda (canal alpha)
-    "usar_mascara": False,
-    # Valor da máscara que indica pixel válido
-    "valor_valido": 255,
+    # ── Máscara ───────────────────────────────────────────────────────────
+    # true = usa a ÚLTIMA banda como máscara (canal alpha)
+    "usar_mascara": True,
+    # Valor que indica pixel válido na máscara
+    "valor_minimo_alpha": 250,
 
-    # Percentual máximo de RAM disponível para cada chunk
+    # ── Memória ───────────────────────────────────────────────────────────
+    # Percentual máximo de RAM disponível para cada chunk de predição
     "ram_limite_pct": 70,
 
-    # Divisão treino/teste
-    "test_size": 0.3,
+    # ── Divisão treino/teste ─────────────────────────────────────────────
+    "test_size":    0.3,
     "random_state": 42,
 
-    # Treinamento
-    "epochs": 100,
-    "batch_size_treino": 250,
+    # ── Treinamento ───────────────────────────────────────────────────────
+    "epochs":           150,
+    "batch_size_treino": 64,
 
-    # Predição (pode ser maior que o batch de treino)
+    # ── Predição ─────────────────────────────────────────────────────────
     "batch_size_predicao": 4096,
 
-    # Arquitetura da rede: neurônios por camada oculta
-    "camadas_ocultas": [256, 128, 64, 8],
+    # ── Arquitetura ───────────────────────────────────────────────────────
+    # Neurônios por camada oculta
+    "camadas_ocultas": [128, 64, 32],
 
-    # Função de ativação: "relu", "elu" ou "tanh"
+    # Função de ativação das camadas ocultas: "relu", "elu" ou "tanh"
     "activation": "relu",
 
-    # Salvar modelo treinado em disco para reutilização futura
-    "salvar_modelo": False,
-    "path_modelo": "resultado/modelo.keras",
+    # Dropout entre camadas ocultas (0 = desativado)
+    "dropout_rate": 0.1,
+
+    # ── Persistência do modelo ────────────────────────────────────────────
+    "salvar_modelo": True,
+    "path_modelo":   "resultado/modelo2.keras",
 }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# UTILITÁRIOS
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _sep(char: str = "=", n: int = 72):
+    print(char * n)
+
+
+def formatar_tempo(segundos: float) -> str:
+    h = int(segundos // 3600)
+    m = int((segundos % 3600) // 60)
+    s = segundos % 60
+    return f"{h:02d}h {m:02d}m {s:05.2f}s"
+
+
+def resolver_caminho(p: str) -> Path:
+    """Resolve caminho relativo em relação ao diretório do script."""
+    path = Path(p)
+    if not path.is_absolute():
+        path = BASE_DIR / path
+    return path
+
+
+class Timer:
+    def __init__(self, nome: str, relatorio: dict):
+        self.nome      = nome
+        self.relatorio = relatorio
+
+    def __enter__(self):
+        self._t0  = time.perf_counter()
+        self._ts0 = time.time()
+        print(f"\n+-- INICIO  {self.nome}")
+        print(f"|   {time.strftime('%Y-%m-%d %H:%M:%S')}")
+        return self
+
+    def __exit__(self, *_):
+        dur = time.perf_counter() - self._t0
+        ts1 = time.time()
+        self.relatorio[self.nome] = {
+            "duracao"    : dur,
+            "inicio_str" : time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(self._ts0)),
+            "fim_str"    : time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts1)),
+        }
+        print(f"+-- FIM     {self.nome}  --  {formatar_tempo(dur)}")
+        return False
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -155,49 +212,8 @@ def configurar_hardware(ram_limite_pct: float = 70.0) -> dict:
 
 def calcular_chunk_linhas(largura: int, n_bandas: int,
                            ram_livre_bytes: int, fator: float = 0.35) -> int:
-    """Quantas linhas cabem num chunk usando `fator` da RAM disponível."""
-    bytes_por_linha = largura * n_bandas * 8  # float64 = 8 bytes (mesma dtype da v1)
+    bytes_por_linha = largura * n_bandas * 8
     return max(1, int(ram_livre_bytes * fator / bytes_por_linha))
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# UTILITÁRIOS
-# ═══════════════════════════════════════════════════════════════════════════
-
-def _sep(char="=", n=68):
-    print(char * n)
-
-
-def formatar_tempo(segundos: float) -> str:
-    h = int(segundos // 3600)
-    m = int((segundos % 3600) // 60)
-    s = segundos % 60
-    return f"{h:02d}h {m:02d}m {s:05.2f}s"
-
-
-class Timer:
-    def __init__(self, nome: str, relatorio: dict):
-        self.nome      = nome
-        self.relatorio = relatorio
-
-    def __enter__(self):
-        self._t0  = time.perf_counter()
-        self._ts0 = time.time()
-        print(f"\n+-- INICIO  {self.nome}")
-        print(f"|   {time.strftime('%Y-%m-%d %H:%M:%S')}")
-        return self
-
-    def __exit__(self, *_):
-        t1  = time.perf_counter()
-        ts1 = time.time()
-        dur = t1 - self._t0
-        self.relatorio[self.nome] = {
-            "duracao"    : dur,
-            "inicio_str" : time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(self._ts0)),
-            "fim_str"    : time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts1)),
-        }
-        print(f"+-- FIM     {self.nome}  --  {formatar_tempo(dur)}")
-        return False
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -205,31 +221,24 @@ class Timer:
 # ═══════════════════════════════════════════════════════════════════════════
 
 class ClassificadorRaster:
-    def __init__(self,
-                 path_img        : str,
-                 shapefiles      : List[Tuple[str, int]],
-                 hw_info         : dict,
-                 path_img_teste  : Optional[str] = None,
-                 path_saida      : str            = "mapa_classificado.tif",
-                 usar_mascara    : bool           = False,
-                 valor_valido    : int            = 255,
-                 camadas_ocultas : List[int]      = None,
-                 activation      : str            = "relu",
-                 salvar_modelo   : bool           = False,
-                 path_modelo     : str            = "resultado/modelo.keras"):
+    def __init__(self, cfg: dict, hw_info: dict):
+        # ── Caminhos resolvidos ──────────────────────────────────────────
+        self.path_img       = resolver_caminho(cfg["path_img"])
+        self.path_img_teste = resolver_caminho(cfg["path_img_teste"])
+        self.path_saida     = resolver_caminho(cfg["path_saida"])
+        self.path_modelo    = resolver_caminho(cfg["path_modelo"])
 
-        self.path_img        = path_img
-        self.shapefiles      = shapefiles
+        self.shapefiles      = [(resolver_caminho(p), int(c)) for p, c in cfg["shapefiles"]]
         self.hw              = hw_info
-        self.path_img_teste  = path_img_teste or path_img
-        self.path_saida      = path_saida
-        self.usar_mascara    = usar_mascara
-        self.valor_valido    = valor_valido
-        self.camadas_ocultas = camadas_ocultas or [256, 128, 64, 8]
-        self.activation      = activation
-        self.salvar_modelo   = salvar_modelo
-        self.path_modelo     = path_modelo
+        self.usar_mascara    = cfg.get("usar_mascara", False)
+        self.valor_valido    = cfg.get("valor_valido", 255)
+        self.valor_min_alpha = cfg.get("valor_minimo_alpha", 250)
+        self.camadas_ocultas = cfg.get("camadas_ocultas", [128, 64, 32])
+        self.activation      = cfg.get("activation", "relu")
+        self.dropout_rate    = cfg.get("dropout_rate", 0.0)
+        self.salvar_modelo   = cfg.get("salvar_modelo", False)
 
+        # Estado interno
         self.src              = None
         self.gdf              = None
         self.X = self.Y       = None
@@ -240,17 +249,29 @@ class ClassificadorRaster:
         self.input_shape      = None
         self.num_classes      = None
         self.n_bandas_feature = None
+        self.nomes_classes    = {}
 
-        self.tamanho_mb   = 0.0
-        self.total_pixels = 0
+        self.tamanho_mb_treino    = 0.0
+        self.tamanho_mb_classific = 0.0
+        self.total_pixels         = 0
 
     # ── Exibe config ────────────────────────────────────────────────────
     def exibir_config(self):
         _sep()
         print(" CONFIGURACAO DO PIPELINE")
         _sep()
+
+        treino_igual_classific = (self.path_img.resolve() == self.path_img_teste.resolve())
+        with rasterio.open(f"{self.path_img}") as src:
+            alpha = src.read(src.count)
+            print(np.unique(alpha))
+
         print(f"  Imagem de treino       : {self.path_img}")
         print(f"  Imagem a classificar   : {self.path_img_teste}")
+        if treino_igual_classific:
+            print("  [ATENCAO] Treino e classificacao usam a MESMA imagem.")
+        else:
+            print("  [OK] Treino e classificacao usam imagens DIFERENTES.")
         print(f"  Saida                  : {self.path_saida}")
         print(f"  Shapefiles / classes   :")
         for shp, cls in self.shapefiles:
@@ -258,37 +279,73 @@ class ClassificadorRaster:
         print(f"  Usar mascara           : {self.usar_mascara}  (valor valido = {self.valor_valido})")
         print(f"  Camadas ocultas        : {self.camadas_ocultas}")
         print(f"  Ativacao               : {self.activation}")
-        print(f"  Normalizacao           : DESATIVADA (comportamento identico a v1)")
+        print(f"  Dropout                : {self.dropout_rate}")
+        print(f"  Normalizacao           : DESATIVADA")
         print(f"  Salvar modelo          : {self.salvar_modelo}")
         if self.salvar_modelo:
             print(f"  Path modelo            : {self.path_modelo}")
         _sep()
 
-    # ── 1. Carga de imagem ───────────────────────────────────────────────
+    # ── Valida se as imagens existem e loga informações ─────────────────
+    def validar_imagens(self):
+        _sep("-")
+        print("  VALIDACAO DAS IMAGENS")
+        _sep("-")
+
+        for label, path in [("Treino (amostras)", self.path_img),
+                             ("Classificacao"    , self.path_img_teste)]:
+            if not path.is_file():
+                raise FileNotFoundError(f"Imagem nao encontrada: {path}")
+            with rasterio.open(path) as src:
+                tam_mb = path.stat().st_size / (1024 * 1024)
+                print(f"  [{label}]")
+                print(f"    Arquivo   : {path.name}")
+                print(f"    Dimensoes : {src.height} x {src.width} px | {src.count} bandas")
+                print(f"    CRS       : {src.crs}")
+                print(f"    Disco     : {tam_mb:.2f} MB")
+                if label.startswith("Treino"):
+                    self.tamanho_mb_treino = tam_mb
+                else:
+                    self.tamanho_mb_classific = tam_mb
+
+        iguais = (self.path_img.resolve() == self.path_img_teste.resolve())
+        print(f"\n  Imagens identicas: {'SIM' if iguais else 'NAO'}")
+        _sep("-")
+
+    # ── 1. Carga de imagem de treino ─────────────────────────────────────
     def carregar_imagem(self):
-        if not os.path.isfile(self.path_img):
+        if not self.path_img.is_file():
             raise FileNotFoundError(f"Imagem nao encontrada: {self.path_img}")
-        self.src = rasterio.open(self.path_img)
-        self.tamanho_mb = os.path.getsize(self.path_img) / (1024 * 1024)
-        print(f"  Arquivo  : {self.path_img}")
+        self.src = rasterio.open(str(self.path_img))
+        print(f"  Arquivo  : {self.path_img.name}")
         print(f"  Dimensoes: {self.src.height} x {self.src.width} px  |  {self.src.count} bandas")
         print(f"  CRS      : {self.src.crs}")
-        print(f"  Disco    : {self.tamanho_mb:.2f} MB")
 
-    # ── 2. Amostras ──────────────────────────────────────────────────────
+    # ── 2. Amostras — exibe pontos por shapefile ─────────────────────────
     def carregar_amostras(self):
+        _sep("-")
+        print("  AMOSTRAS POR SHAPEFILE")
+        _sep("-")
+        print(f"  {'Classe':^7}  {'Shapefile':<40}  {'Pontos':>8}")
+        print(f"  {'-'*7}  {'-'*40}  {'-'*8}")
+
         lista = []
         for shp_path, classe_id in self.shapefiles:
-            if not os.path.isfile(shp_path):
+            if not shp_path.is_file():
                 raise FileNotFoundError(f"Shapefile nao encontrado: {shp_path}")
-            gdf = gpd.read_file(shp_path)
+            gdf = gpd.read_file(str(shp_path))
             if self.src is not None and gdf.crs != self.src.crs:
                 gdf = gdf.to_crs(self.src.crs.to_dict())
             gdf["id"] = classe_id
+            nome_cls  = shp_path.stem
+            self.nomes_classes[classe_id] = nome_cls
+            print(f"  {classe_id:^7}  {shp_path.name:<40}  {len(gdf):>8,}")
             lista.append(gdf)
-            print(f"  [Classe {classe_id}] {shp_path}  ->  {len(gdf)} pontos")
+
         self.gdf = pd.concat(lista, axis=0, ignore_index=True)
-        print(f"  Total de amostras: {len(self.gdf)}")
+        print(f"  {'-'*7}  {'-'*40}  {'-'*8}")
+        print(f"  {'TOTAL':^7}  {'':<40}  {len(self.gdf):>8,}")
+        _sep("-")
 
     # ── 3. Extração espectral ────────────────────────────────────────────
     def extrair_valores(self):
@@ -302,28 +359,49 @@ class ClassificadorRaster:
             self.n_bandas_feature = self.src.count
             self.X = valores
 
-        # Igual à v1: Y com shape (N, 1) para compatibilidade com binary_crossentropy
         self.Y = self.gdf["id"].values[:, np.newaxis]
-        print(f"  Vetores extraidos: {self.X.shape[0]} x {self.X.shape[1]} bandas")
+        print(f"  Vetores extraidos: {self.X.shape[0]:,} x {self.X.shape[1]} bandas")
 
-    # ── 4. Preparação — SEM normalização (igual v1) ──────────────────────
+    # ── 4. Preparação ────────────────────────────────────────────────────
     def preparar_dados(self, test_size: float = 0.3, random_state: int = 42):
         self.X_train, self.X_test, self.Y_train, self.Y_test = train_test_split(
-            self.X, self.Y, test_size=test_size, random_state=random_state
+            self.X, self.Y, test_size=test_size, random_state=random_state,
+            stratify=self.Y  # garante distribuição proporcional de classes
         )
         self.input_shape = (self.X_train.shape[1],)
         self.num_classes = len(np.unique(self.gdf["id"].values))
-        print(f"  Treino: {len(self.X_train)}  |  Teste: {len(self.X_test)}  |  Classes: {self.num_classes}")
-        print(f"  Input shape : {self.input_shape}")
 
-    # ── 5. Modelo — igual v1 ────────────────────────────────────────────
+        _sep("-")
+        print("  DISTRIBUICAO DOS DADOS")
+        _sep("-")
+        print(f"  Total amostras : {len(self.X):,}")
+        print(f"  Treino         : {len(self.X_train):,}  ({100*(1-test_size):.0f}%)")
+        print(f"  Teste          : {len(self.X_test):,}  ({100*test_size:.0f}%)")
+        print(f"  Classes        : {self.num_classes}")
+        print(f"  Input shape    : {self.input_shape}")
+
+        print(f"\n  {'Classe':<8}  {'Nome':<20}  {'Total':>8}  {'Treino':>8}  {'Teste':>8}")
+        print(f"  {'-'*8}  {'-'*20}  {'-'*8}  {'-'*8}  {'-'*8}")
+        for cls in sorted(self.nomes_classes.keys()):
+            t = int(np.sum(self.Y        == cls))
+            r = int(np.sum(self.Y_train  == cls))
+            e = int(np.sum(self.Y_test   == cls))
+            print(f"  {cls:<8}  {self.nomes_classes[cls]:<20}  {t:>8,}  {r:>8,}  {e:>8,}")
+        _sep("-")
+
+    # ── 5. Modelo com Dropout ────────────────────────────────────────────
     def construir_modelo(self):
         model = Sequential()
-        model.add(Dense(self.camadas_ocultas[0],
-                        input_shape=self.input_shape,
-                        activation=self.activation))
-        for unidades in self.camadas_ocultas[1:]:
-            model.add(Dense(unidades, activation=self.activation))
+        first = True
+        for unidades in self.camadas_ocultas:
+            if first:
+                model.add(Dense(unidades, input_shape=self.input_shape,
+                                activation=self.activation))
+                first = False
+            else:
+                model.add(Dense(unidades, activation=self.activation))
+            if self.dropout_rate > 0:
+                model.add(Dropout(self.dropout_rate))
 
         if self.num_classes == 2:
             model.add(Dense(1, activation="sigmoid"))
@@ -336,8 +414,8 @@ class ClassificadorRaster:
         self.model = model
         self.model.summary()
 
-    # ── 6. Treinamento — igual v1 ────────────────────────────────────────
-    def treinar(self, epochs: int = 100, batch_size: int = 250,
+    # ── 6. Treinamento ───────────────────────────────────────────────────
+    def treinar(self, epochs: int = 150, batch_size: int = 64,
                 validation_split: float = 0.25, verbose: int = 1):
         self.history = self.model.fit(
             self.X_train, self.Y_train,
@@ -347,90 +425,205 @@ class ClassificadorRaster:
             verbose=verbose,
         )
         if self.salvar_modelo:
-            os.makedirs(os.path.dirname(self.path_modelo) or ".", exist_ok=True)
-            self.model.save(self.path_modelo)
+            self.path_modelo.parent.mkdir(parents=True, exist_ok=True)
+            self.model.save(str(self.path_modelo))
             print(f"  Modelo salvo em: {self.path_modelo}")
 
-    # ── 7. Avaliação — igual v1 ──────────────────────────────────────────
+    # ── 7. Avaliação detalhada por classe ────────────────────────────────
     def avaliar(self):
+        # Gráficos de treinamento
         fig, ax = plt.subplots(1, 2, figsize=(16, 8))
         ax[0].plot(self.history.history["loss"],     color="b", label="Training loss")
         ax[0].plot(self.history.history["val_loss"], color="r", label="Validation loss")
-        ax[0].legend(loc="best", shadow=True)
-        ax[0].set_title("Loss")
+        ax[0].legend(loc="best", shadow=True); ax[0].set_title("Loss")
         ax[1].plot(self.history.history["accuracy"],     color="b", label="Training accuracy")
         ax[1].plot(self.history.history["val_accuracy"], color="r", label="Validation accuracy")
-        ax[1].legend(loc="best", shadow=True)
-        ax[1].set_title("Accuracy")
+        ax[1].legend(loc="best", shadow=True); ax[1].set_title("Accuracy")
         plt.tight_layout()
-        plt.savefig("graficos_treinamento.png", dpi=150)
-        print("  Graficos -> graficos_treinamento.png")
+        graf_path = BASE_DIR / "resultado" / "graficos_treinamento.png"
+        graf_path.parent.mkdir(parents=True, exist_ok=True)
+        plt.savefig(str(graf_path), dpi=150)
+        print(f"  Graficos -> {graf_path}")
 
+        # Avaliação geral
         score  = self.model.evaluate(self.X_test, self.Y_test, verbose=0)
-        print(f"  Test loss: {score[0]:.4f}  |  Test accuracy: {score[1]:.4f}")
+        print(f"\n  Test loss     : {score[0]:.4f}")
+        print(f"  Test accuracy : {score[1]:.4f}  ({score[1]*100:.2f}%)")
 
-        y_pred = self.model.predict(self.X_test)
+        # Predições
+        y_pred_raw = self.model.predict(self.X_test, verbose=0)
         if self.num_classes == 2:
-            y_pred = np.round(y_pred).astype(int)
+            y_pred = np.round(y_pred_raw).astype(int).flatten()
         else:
-            y_pred = np.argmax(y_pred, axis=1)
+            y_pred = np.argmax(y_pred_raw, axis=1)
 
-        print("\n  Classification Report:")
-        print(classification_report(self.Y_test, y_pred))
+        y_true = self.Y_test.flatten()
 
-        cm    = confusion_matrix(self.Y_test, y_pred)
-        nomes = [f"Classe {c}" for c in sorted(self.gdf["id"].unique())]
-        plt.figure(figsize=(8, 8))
-        sns.heatmap(pd.DataFrame(cm, index=nomes, columns=nomes),
-                    annot=True, annot_kws={"size": 18}, fmt="d",
-                    cmap="Blues", cbar=False)
-        plt.ylabel("True"); plt.xlabel("Predict")
+        # ── Precisão global ─────────────────────────────────────────────
+        acc_global = accuracy_score(y_true, y_pred)
+        _sep("-")
+        print("  METRICAS POR CLASSE (conjunto de teste)")
+        _sep("-")
+
+        nomes_lista = [self.nomes_classes.get(c, f"Classe {c}")
+                       for c in sorted(self.nomes_classes.keys())]
+        report = classification_report(
+            y_true, y_pred,
+            target_names=nomes_lista,
+            digits=4,
+            output_dict=True
+        )
+
+        # Tabela legível
+        print(f"\n  {'Classe':<20}  {'Precisao':>10}  {'Recall':>10}  {'F1-Score':>10}  {'Suporte':>10}")
+        print(f"  {'-'*20}  {'-'*10}  {'-'*10}  {'-'*10}  {'-'*10}")
+        for nome in nomes_lista:
+            r = report[nome]
+            print(f"  {nome:<20}  {r['precision']:>10.4f}  {r['recall']:>10.4f}"
+                  f"  {r['f1-score']:>10.4f}  {int(r['support']):>10,}")
+        print(f"  {'-'*20}  {'-'*10}  {'-'*10}  {'-'*10}  {'-'*10}")
+        mac = report["macro avg"]
+        wei = report["weighted avg"]
+        print(f"  {'macro avg':<20}  {mac['precision']:>10.4f}  {mac['recall']:>10.4f}"
+              f"  {mac['f1-score']:>10.4f}")
+        print(f"  {'weighted avg':<20}  {wei['precision']:>10.4f}  {wei['recall']:>10.4f}"
+              f"  {wei['f1-score']:>10.4f}")
+        print(f"\n  Acuracia global : {acc_global:.4f}  ({acc_global*100:.2f}%)")
+        _sep("-")
+
+        # Classification report completo no terminal
+        print("\n  Classification Report (scikit-learn):\n")
+        print(classification_report(y_true, y_pred, target_names=nomes_lista, digits=4))
+
+        # Matriz de confusão
+        cm = confusion_matrix(y_true, y_pred)
+        plt.figure(figsize=(max(6, self.num_classes * 2), max(5, self.num_classes * 2)))
+        sns.heatmap(
+            pd.DataFrame(cm, index=nomes_lista, columns=nomes_lista),
+            annot=True, annot_kws={"size": 14}, fmt="d",
+            cmap="Blues", cbar=False
+        )
+        plt.ylabel("Real"); plt.xlabel("Predito")
+        plt.title("Matriz de Confusao")
         plt.tight_layout()
-        plt.savefig("matriz_confusao.png", dpi=150)
-        print("  Matriz de confusao -> matriz_confusao.png")
+        cm_path = BASE_DIR / "resultado" / "matriz_confusao.png"
+        plt.savefig(str(cm_path), dpi=150)
+        print(f"  Matriz de confusao -> {cm_path}")
 
-    # ── 8. Predição chunked — memória eficiente, lógica idêntica à v1 ───
+        # Salva métricas em texto
+        self._salvar_relatorio_metricas(report, acc_global, nomes_lista)
+
+    def _salvar_relatorio_metricas(self, report: dict, acc: float, nomes: list):
+        txt_path = BASE_DIR / "resultado" / "relatorio_metricas.txt"
+        with open(str(txt_path), "w", encoding="utf-8") as f:
+            f.write("RELATORIO DE METRICAS — Classificador Raster v5\n")
+            f.write("=" * 60 + "\n\n")
+            f.write(f"Imagem de treino       : {self.path_img}\n")
+            f.write(f"Imagem classificada    : {self.path_img_teste}\n")
+            f.write(f"Acuracia global        : {acc:.4f} ({acc*100:.2f}%)\n\n")
+            f.write(f"{'Classe':<22} {'Precisao':>10} {'Recall':>10} {'F1':>10} {'Suporte':>10}\n")
+            f.write("-" * 62 + "\n")
+            for nome in nomes:
+                r = report[nome]
+                f.write(f"{nome:<22} {r['precision']:>10.4f} {r['recall']:>10.4f}"
+                        f" {r['f1-score']:>10.4f} {int(r['support']):>10}\n")
+        print(f"  Metricas salvas -> {txt_path}")
+
+    # ── 8. Predição chunked ──────────────────────────────────────────────
+    # ── 8. Predição chunked ──────────────────────────────────────────────────
     def prever_imagem(self, batch_size_pred: int = 4096):
         """
-        Classifica a imagem em chunks de linhas para não estourar a RAM.
-        NÃO normaliza os pixels — mesma escala que entrou no treino (v1).
+        Classifica a imagem (path_img_teste) em chunks de linhas.
+        - dtype de saída : uint8  (valores 0-255, suficiente para N classes)
+        - nodata         : 255    (reservado; pixels sem máscara ficam 255)
+        - compressão     : LZW
+        - overviews      : 2 4 8 16 32 64  (pirâmides internas)
+        - feedback       : barra de progresso a cada chunk + linha de status
         """
-        print(f"  Imagem: {self.path_img_teste}")
+        NODATA_OUT = 255          # valor reservado para "sem dado"
+        DTYPE_OUT  = "uint8"
 
-        with rasterio.open(self.path_img_teste) as src:
+        path_src = self.path_img_teste
+        print(f"\n  Imagem a classificar : {path_src}")
+
+        with rasterio.open(str(path_src)) as src:
             altura         = src.height
             largura        = src.width
             n_bandas_total = src.count
             out_meta       = src.meta.copy()
+            self.total_pixels = altura * largura
 
-        self.total_pixels = altura * largura
+        # ── verifica compatibilidade de bandas ────────────────────────────
+        n_feat_classif = (n_bandas_total - 1) if self.usar_mascara else n_bandas_total
+        if n_feat_classif != self.n_bandas_feature:
+            raise ValueError(
+                f"Incompatibilidade de bandas: treino usou {self.n_bandas_feature} "
+                f"bandas, mas a imagem de classificação tem {n_feat_classif} bandas de feature."
+            )
 
+        # ── tamanho do chunk ──────────────────────────────────────────────
         ram_livre  = psutil.virtual_memory().available
         ram_usar   = min(ram_livre, self.hw["ram_limite_bytes"])
         chunk_lin  = calcular_chunk_linhas(largura, self.n_bandas_feature, ram_usar)
         n_chunks   = math.ceil(altura / chunk_lin)
 
-        print(f"  Dimensoes     : {altura} x {largura} px  |  {n_bandas_total} bandas")
-        print(f"  Total pixels  : {self.total_pixels:,}")
-        print(f"  RAM disponivel: {ram_livre / 1e9:.1f} GB  |  Limite: {self.hw['ram_limite_gb']:.1f} GB")
-        print(f"  Chunk         : {chunk_lin} linhas  ->  {n_chunks} chunks no total")
+        print(f"  Dimensões            : {altura} x {largura} px | {n_bandas_total} bandas")
+        print(f"  Total de pixels      : {self.total_pixels:,}")
+        print(f"  RAM disponível       : {ram_livre/1e9:.1f} GB  |  Limite: {self.hw['ram_limite_gb']:.1f} GB")
+        print(f"  Chunk                : {chunk_lin:,} linhas  →  {n_chunks} chunks")
+        print(f"  dtype saída          : {DTYPE_OUT}  |  nodata: {NODATA_OUT}  |  compressão: LZW")
+        print(f"  Overviews internos   : 2 4 8 16 32 64\n")
 
-        # dtype float64 igual à v1 (model.predict recebe float64)
+        # ── metadados de saída ────────────────────────────────────────────
         out_meta.update({
             "driver"  : "GTiff",
             "count"   : 1,
-            "dtype"   : "float64",
+            "dtype"   : DTYPE_OUT,
             "compress": "lzw",
-            "nodata"  : np.nan,
+            "nodata"  : NODATA_OUT,
             "height"  : altura,
             "width"   : largura,
+            # tiled para facilitar overviews e leitura eficiente
+            "tiled"   : True,
+            "blockxsize": 512,
+            "blockysize": 512,
         })
-        os.makedirs(os.path.dirname(self.path_saida) or ".", exist_ok=True)
 
-        t_inicio = time.perf_counter()
+        self.path_saida.parent.mkdir(parents=True, exist_ok=True)
 
-        with rasterio.open(self.path_img_teste) as src, \
-             rasterio.open(self.path_saida, "w", **out_meta) as dst:
+        # ── helpers de progresso ──────────────────────────────────────────
+        BAR_WIDTH  = 30
+        t_inicio   = time.perf_counter()
+        pixels_ok  = 0
+        pixels_nan = 0
+
+        def _barra(pct: float) -> str:
+            filled = int(BAR_WIDTH * pct / 100)
+            return "█" * filled + "░" * (BAR_WIDTH - filled)
+
+        def _eta_str(elapsed: float, pct: float) -> str:
+            if pct <= 0:
+                return "--:--:--"
+            eta = elapsed / (pct / 100) - elapsed
+            return formatar_tempo(eta)
+
+        def _imprimir_progresso(i_chunk: int, pct: float, ram_pct: float,
+                                 elapsed: float, pixels_validos_chunk: int):
+            barra  = _barra(pct)
+            eta    = _eta_str(elapsed, pct)
+            vel    = pixels_ok / elapsed if elapsed > 0 else 0
+            print(
+                f"\r  Chunk {i_chunk+1:>{len(str(n_chunks))}}/{n_chunks}  "
+                f"[{barra}] {pct:5.1f}%  "
+                f"RAM {ram_pct:4.1f}%  "
+                f"ETA {eta}  "
+                f"vel {vel/1e6:6.2f} Mpx/s",
+                end="", flush=True
+            )
+
+        # ── loop principal ────────────────────────────────────────────────
+        with rasterio.open(str(path_src)) as src, \
+             rasterio.open(str(self.path_saida), "w", **out_meta) as dst:
 
             for i in range(n_chunks):
                 lin_ini = i * chunk_lin
@@ -438,59 +631,94 @@ class ClassificadorRaster:
                 n_lin   = lin_fim - lin_ini
                 window  = Window(0, lin_ini, largura, n_lin)
 
-                chunk = src.read(window=window)  # (B, H, W)
+                # lê chunk
+                chunk = src.read(window=window)          # (B, H, W)  uint8
 
+                # separa features e máscara
                 if self.usar_mascara and n_bandas_total > self.n_bandas_feature:
-                    mascara_2d = chunk[-1]
+                    mascara_2d = chunk[-1]               # última banda = alpha
                     features   = chunk[:self.n_bandas_feature]
                 else:
                     mascara_2d = None
                     features   = chunk
 
-                # (H*W, bandas) — float64 igual à v1, SEM normalização
-                feat_2d = (features.transpose(1, 2, 0)
-                                   .reshape(-1, self.n_bandas_feature)
-                                   .astype(np.float64))
+                # reshape para (N_pixels, N_features)
+                feat_2d = (features
+                           .transpose(1, 2, 0)
+                           .reshape(-1, self.n_bandas_feature)
+                           .astype(np.float64))
 
-                resultado = np.full(n_lin * largura, np.nan)
+                # array de saída — começa todo como nodata
+                resultado = np.full(n_lin * largura, NODATA_OUT, dtype=np.uint8)
 
+                # máscara booleana de pixels válidos
                 if mascara_2d is not None:
-                    validos = mascara_2d.reshape(-1) == self.valor_valido
+                    validos = mascara_2d.reshape(-1) >= self.valor_min_alpha
                 else:
                     validos = np.ones(feat_2d.shape[0], dtype=bool)
 
-                pixels_validos = feat_2d[validos]
+                pixels_validos_chunk = int(validos.sum())
 
-                if len(pixels_validos) > 0:
+                if pixels_validos_chunk > 0:
                     pred_raw = self.model.predict(
-                        pixels_validos, batch_size=batch_size_pred, verbose=0
+                        feat_2d[validos],
+                        batch_size=batch_size_pred,
+                        verbose=0
                     )
                     if self.num_classes == 2:
-                        pred_cls = np.round(pred_raw).astype(float).flatten()
+                        pred_cls = np.round(pred_raw).astype(np.uint8).flatten()
                     else:
-                        pred_cls = np.argmax(pred_raw, axis=1).astype(float)
+                        pred_cls = np.argmax(pred_raw, axis=1).astype(np.uint8)
+
                     resultado[validos] = pred_cls
 
+                pixels_ok  += pixels_validos_chunk
+                pixels_nan += int((~validos).sum())
+
+                # grava chunk
                 dst.write(resultado.reshape(1, n_lin, largura), window=window)
 
-                # Progresso
+                # ── feedback ──────────────────────────────────────────────
+                elapsed = time.perf_counter() - t_inicio
                 pct     = (i + 1) / n_chunks * 100
                 ram_pct = psutil.virtual_memory().percent
-                t_decor = time.perf_counter() - t_inicio
-                eta     = (t_decor / (i + 1)) * (n_chunks - i - 1)
-                barra   = "#" * int(pct / 5)
-                print(f"  Chunk {i+1:4d}/{n_chunks}  [{barra:<20}] {pct:5.1f}%  "
-                      f"RAM {ram_pct:4.1f}%  ETA {formatar_tempo(eta)}",
-                      end="\r")
+                _imprimir_progresso(i, pct, ram_pct, elapsed, pixels_validos_chunk)
 
-                del chunk, features, feat_2d, resultado, pixels_validos
+                # libera memória
+                del chunk, features, feat_2d, resultado, pred_raw, pred_cls
                 if mascara_2d is not None:
                     del mascara_2d
 
-        print(f"\n  Concluido. GeoTIFF salvo em: {self.path_saida}")
+        # linha em branco após a barra
+        print()
 
-    def salvar_resultado(self):
-        print(f"  Resultado ja salvo: {self.path_saida}")
+        # ── overviews internos ────────────────────────────────────────────
+        niveis_ov = [2, 4, 8, 16, 32, 64]
+        print(f"\n  Calculando overviews {niveis_ov} ... ", end="", flush=True)
+        t_ov = time.perf_counter()
+        with rasterio.open(str(self.path_saida), "r+") as dst:
+            dst.build_overviews(niveis_ov, rasterio.enums.Resampling.nearest)
+            dst.update_tags(ns="rio_overview", resampling="nearest")
+        print(f"OK  ({formatar_tempo(time.perf_counter() - t_ov)})")
+
+        # ── resumo final ──────────────────────────────────────────────────
+        elapsed_total = time.perf_counter() - t_inicio
+        tam_saida_mb  = self.path_saida.stat().st_size / (1024 * 1024)
+        pct_validos   = pixels_ok / self.total_pixels * 100 if self.total_pixels else 0
+
+        print(f"\n  ┌─ Resumo da classificação ──────────────────────────────")
+        print(f"  │  GeoTIFF salvo em  : {self.path_saida}")
+        print(f"  │  Tamanho em disco  : {tam_saida_mb:.2f} MB")
+        print(f"  │  Pixels válidos    : {pixels_ok:,}  ({pct_validos:.2f}%)")
+        print(f"  │  Pixels nodata     : {pixels_nan:,}  ({100-pct_validos:.2f}%)")
+        print(f"  │  Tempo total       : {formatar_tempo(elapsed_total)}")
+        print(f"  │  Velocidade        : {pixels_ok/elapsed_total/1e6:.2f} Mpx/s")
+        print(f"  └───────────────────────────────────────────────────────────")
+
+    def finalizar(self):
+        if self.src and not self.src.closed:
+            self.src.close()
+        print(f"  Resultado: {self.path_saida}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -498,7 +726,7 @@ class ClassificadorRaster:
 # ═══════════════════════════════════════════════════════════════════════════
 
 def exibir_relatorio_final(relatorio: dict, hw_info: dict,
-                           tamanho_mb: float, total_pixels: int):
+                           clf: ClassificadorRaster):
     tempo_total = sum(v["duracao"] for v in relatorio.values())
     tempo_min   = tempo_total / 60 if tempo_total > 0 else 1e-9
 
@@ -507,7 +735,7 @@ def exibir_relatorio_final(relatorio: dict, hw_info: dict,
     print("  RELATORIO FINAL DE EXECUCAO")
     _sep()
 
-    cN, cI, cF, cD, cP = 35, 19, 19, 16, 7
+    cN, cI, cF, cD, cP = 38, 20, 20, 18, 7
     print(f"\n{'Etapa':<{cN}} {'Inicio':<{cI}} {'Fim':<{cF}} {'Duracao':>{cD}} {'%':>{cP}}")
     print("-" * (cN + cI + cF + cD + cP + 4))
 
@@ -523,14 +751,15 @@ def exibir_relatorio_final(relatorio: dict, hw_info: dict,
     _sep("-")
     print("  DESEMPENHO")
     _sep("-")
-    print(f"  Imagem processada      : {tamanho_mb:>10,.2f} MB")
-    print(f"  Total de pixels        : {total_pixels:>10,}")
-    print(f"  Tempo total            : {formatar_tempo(tempo_total):>16}")
+    print(f"  Imagem treino (tam)    : {clf.tamanho_mb_treino:>10,.2f} MB")
+    print(f"  Imagem classif. (tam)  : {clf.tamanho_mb_classific:>10,.2f} MB")
+    print(f"  Total de pixels        : {clf.total_pixels:>10,}")
+    print(f"  Tempo total            : {formatar_tempo(tempo_total):>18}")
     print()
-    print(f"  Pixels / minuto        : {total_pixels / tempo_min:>15,.0f}")
-    print(f"  MB / minuto            : {tamanho_mb / tempo_min:>15.2f}")
-    if total_pixels > 0:
-        print(f"  ms / pixel             : {(tempo_total / total_pixels) * 1000:>15.6f}")
+    print(f"  Pixels / minuto        : {clf.total_pixels / tempo_min:>15,.0f}")
+    print(f"  MB classif. / minuto   : {clf.tamanho_mb_classific / tempo_min:>15.2f}")
+    if clf.total_pixels > 0:
+        print(f"  ms / pixel             : {(tempo_total / clf.total_pixels) * 1000:>15.6f}")
 
     print()
     _sep("-")
@@ -547,97 +776,30 @@ def exibir_relatorio_final(relatorio: dict, hw_info: dict,
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# CLI
-# ═══════════════════════════════════════════════════════════════════════════
-
-def parse_shapefile(arg: str) -> Tuple[str, int]:
-    p = arg.rsplit(",", 1)
-    if len(p) != 2:
-        raise argparse.ArgumentTypeError("Formato: caminho_shapefile,id_classe")
-    return p[0], int(p[1])
-
-
-def parse_args():
-    parser = argparse.ArgumentParser(
-        description="Classificador raster v4. Edite CONFIG no topo ou use --config / args CLI."
-    )
-    parser.add_argument("--config",      "-c", default=None)
-    parser.add_argument("--imagem",      "-i", default=None)
-    parser.add_argument("--shapefile",   "-s", action="append", type=parse_shapefile)
-    parser.add_argument("--teste",       "-t", default=None)
-    parser.add_argument("--saida",       "-o", default=None)
-    parser.add_argument("--epochs",            type=int,   default=None)
-    parser.add_argument("--batch-size",        type=int,   default=None)
-    parser.add_argument("--test-size",         type=float, default=None)
-    parser.add_argument("--random-state",      type=int,   default=None)
-    parser.add_argument("--usar-mascara",      action="store_true")
-    parser.add_argument("--ram-limite",        type=float, default=None)
-    return parser.parse_args()
-
-
-def montar_config(args) -> dict:
-    """Prioridade: JSON externo > args CLI > CONFIG embutido."""
-    cfg = CONFIG.copy()
-
-    if args.config and os.path.isfile(args.config):
-        with open(args.config, "r", encoding="utf-8") as f:
-            ext = json.load(f)
-        ext.pop("_comentarios", None)
-        cfg.update(ext)
-        cfg["shapefiles"] = [tuple(x) for x in cfg.get("shapefiles", [])]
-        return cfg
-
-    if args.imagem:       cfg["path_img"]          = args.imagem
-    if args.shapefile:    cfg["shapefiles"]         = args.shapefile
-    if args.teste:        cfg["path_img_teste"]     = args.teste
-    if args.saida:        cfg["path_saida"]         = args.saida
-    if args.epochs        is not None: cfg["epochs"]            = args.epochs
-    if args.batch_size    is not None: cfg["batch_size_treino"] = args.batch_size
-    if args.test_size     is not None: cfg["test_size"]         = args.test_size
-    if args.random_state  is not None: cfg["random_state"]      = args.random_state
-    if args.usar_mascara:              cfg["usar_mascara"]       = True
-    if args.ram_limite    is not None: cfg["ram_limite_pct"]     = args.ram_limite
-
-    cfg["shapefiles"] = [tuple(x) for x in cfg["shapefiles"]]
-    return cfg
-
-
-# ═══════════════════════════════════════════════════════════════════════════
 # PONTO DE ENTRADA
 # ═══════════════════════════════════════════════════════════════════════════
 
 def main():
-    args      = parse_args()
-    cfg       = montar_config(args)
+    cfg       = CONFIG.copy()
     hw_info   = configurar_hardware(ram_limite_pct=cfg.get("ram_limite_pct", 70.0))
     relatorio = {}
 
-    clf = ClassificadorRaster(
-        path_img        = cfg["path_img"],
-        shapefiles      = cfg["shapefiles"],
-        hw_info         = hw_info,
-        path_img_teste  = cfg.get("path_img_teste", cfg["path_img"]),
-        path_saida      = cfg["path_saida"],
-        usar_mascara    = cfg.get("usar_mascara", False),
-        valor_valido    = cfg.get("valor_valido", 255),
-        camadas_ocultas = cfg.get("camadas_ocultas", [256, 128, 64, 8]),
-        activation      = cfg.get("activation", "relu"),
-        salvar_modelo   = cfg.get("salvar_modelo", False),
-        path_modelo     = cfg.get("path_modelo", "resultado/modelo.keras"),
-    )
-
+    clf = ClassificadorRaster(cfg=cfg, hw_info=hw_info)
     clf.exibir_config()
 
-    with Timer("1. Carregar imagem", relatorio):
+    # Valida e exibe informações de ambas as imagens antes de iniciar
+    clf.validar_imagens()
+
+    with Timer("1. Carregar imagem de treino", relatorio):
         clf.carregar_imagem()
 
-    with Timer("2. Carregar amostras", relatorio):
+    with Timer("2. Carregar amostras (shapefiles)", relatorio):
         clf.carregar_amostras()
 
     with Timer("3. Extrair valores espectrais", relatorio):
         clf.extrair_valores()
 
-    with Timer("4. Preparar dados", relatorio):
+    with Timer("4. Preparar dados (split)", relatorio):
         clf.preparar_dados(
             test_size    = cfg.get("test_size", 0.3),
             random_state = cfg.get("random_state", 42),
@@ -648,22 +810,22 @@ def main():
 
     with Timer("6. Treinar modelo", relatorio):
         clf.treinar(
-            epochs     = cfg.get("epochs", 100),
-            batch_size = cfg.get("batch_size_treino", 250),
+            epochs     = cfg.get("epochs", 150),
+            batch_size = cfg.get("batch_size_treino", 64),
         )
 
-    with Timer("7. Avaliar modelo", relatorio):
+    with Timer("7. Avaliar modelo (metricas por classe)", relatorio):
         clf.avaliar()
 
-    with Timer("8. Predicao + exportacao (chunked)", relatorio):
+    with Timer("8. Predicao + exportacao GeoTIFF (chunked)", relatorio):
         clf.prever_imagem(
             batch_size_pred = cfg.get("batch_size_predicao", 4096),
         )
 
     with Timer("9. Finalizar", relatorio):
-        clf.salvar_resultado()
+        clf.finalizar()
 
-    exibir_relatorio_final(relatorio, hw_info, clf.tamanho_mb, clf.total_pixels)
+    exibir_relatorio_final(relatorio, hw_info, clf)
     print("=== PIPELINE FINALIZADO COM SUCESSO ===\n")
 
 
