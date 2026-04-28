@@ -1,6 +1,6 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
+multchinks
 Classificador Raster com Redes Neurais — v5
 ============================================
 Melhorias em relação à v4:
@@ -30,6 +30,8 @@ import math
 import argparse
 from pathlib import Path
 from typing import List, Tuple, Optional
+from concurrent.futures import ProcessPoolExecutor
+import os
 
 import numpy as np
 import pandas as pd
@@ -64,21 +66,21 @@ BASE_DIR = Path(__file__).resolve().parent
 CONFIG = {
     # ── Imagens ──────────────────────────────────────────────────────────
     # Imagem usada para EXTRAIR AMOSTRAS (pode ser um recorte menor)
-    "path_img": "dados/imagemCompleta2.tif",
+    "path_img": "dados/imagemTreino.tif",
 
     # Imagem a ser CLASSIFICADA (pode ser a mesma ou a versão completa)
-    "path_img_teste": "dados/imagemCompleta2.tif",
+    "path_img_teste": "dados/imagemTreino.tif",
 
     # Onde salvar o GeoTIFF classificado
-    "path_saida": "resultado/mapa_classificado_2calss1M.tif",
+    "path_saida": "resultado/mapa_classificado_testando.tif",
 
     # ── Amostras ─────────────────────────────────────────────────────────
     # Cada entrada: [caminho_shapefile, id_classe]
     "shapefiles": [
         ["dados/solo.shp",       0],
-        ["dados/floresta.shp",  1]
-        #,["dados/palhada.shp",    2],
-        #["dados/daninhas.shp",   3],
+        ["dados/floresta.shp",  1],
+        ["dados/palhada.shp",    2],
+        ["dados/daninhas.shp",   3],
     ],
 
     # ── Máscara ───────────────────────────────────────────────────────────
@@ -87,14 +89,9 @@ CONFIG = {
     # Valor que indica pixel válido na máscara
     "valor_minimo_alpha": 250,
 
-    # ── Performance ──────────────────────────────────────────────────────
-    "usar_gpu": False,              # força GPU se existir; False = CPU only
-    "cpu_threads": 0,              # 0 = automático (os.cpu_count())
-    "chunk_linhas": 0,             # 0 = automático
-    "num_chunks": 0,               # 0 = automático (divide altura da imagem)
+    # ── Memória ───────────────────────────────────────────────────────────
+    # Percentual máximo de RAM disponível para cada chunk de predição
     "ram_limite_pct": 70,
-    "batch_size_predicao": 8192,
-    "batch_size_treino": 128,
 
     # ── Divisão treino/teste ─────────────────────────────────────────────
     "test_size":    0.3,
@@ -102,6 +99,10 @@ CONFIG = {
 
     # ── Treinamento ───────────────────────────────────────────────────────
     "epochs":           150,
+    "batch_size_treino": 64,
+
+    # ── Predição ─────────────────────────────────────────────────────────
+    "batch_size_predicao": 4096,
 
     # ── Arquitetura ───────────────────────────────────────────────────────
     # Neurônios por camada oculta
@@ -170,9 +171,7 @@ class Timer:
 # HARDWARE
 # ═══════════════════════════════════════════════════════════════════════════
 
-def configurar_hardware(ram_limite_pct: float = 70.0,
-                         usar_gpu: bool = True,
-                         cpu_threads: int = 0) -> dict:
+def configurar_hardware(ram_limite_pct: float = 70.0) -> dict:
     info = {}
     mem = psutil.virtual_memory()
     info["ram_total_gb"]     = mem.total / (1024 ** 3)
@@ -180,15 +179,7 @@ def configurar_hardware(ram_limite_pct: float = 70.0,
     info["ram_limite_bytes"] = int(info["ram_limite_gb"] * (1024 ** 3))
 
     gpus = tf.config.list_physical_devices("GPU")
-    if not usar_gpu:
-        try:
-            tf.config.set_visible_devices([], 'GPU')
-        except RuntimeError:
-            print("  [AVISO] GPUs já foram inicializadas, não é possível ocultá-las. Continuando com GPU(s) visível(is).")
-            pass
-        info["device"]    = "CPU"
-        info["gpu_count"] = 0
-    elif gpus:
+    if gpus:
         try:
             for gpu in gpus:
                 tf.config.experimental.set_memory_growth(gpu, True)
@@ -203,18 +194,16 @@ def configurar_hardware(ram_limite_pct: float = 70.0,
         info["device"]    = "CPU"
         info["gpu_count"] = 0
 
-    cpu_count = cpu_threads if cpu_threads > 0 else (os.cpu_count() or 4)
+    cpu_count = os.cpu_count() or 4
     tf.config.threading.set_intra_op_parallelism_threads(cpu_count)
     tf.config.threading.set_inter_op_parallelism_threads(cpu_count)
     info["cpu_threads"] = cpu_count
-    info["usar_gpu"]    = usar_gpu
 
     _sep()
     print(" CONFIGURACAO DE HARDWARE")
     _sep()
     print(f"  RAM total          : {info['ram_total_gb']:.1f} GB")
     print(f"  RAM limite ({ram_limite_pct:.0f}%)   : {info['ram_limite_gb']:.1f} GB")
-    print(f"  Usar GPU           : {usar_gpu}")
     print(f"  Dispositivo TF     : {info['device']}")
     if info["device"] == "GPU":
         print(f"  GPUs               : {info['gpu_count']} -> {info['gpu_nomes']}")
@@ -227,7 +216,14 @@ def calcular_chunk_linhas(largura: int, n_bandas: int,
                            ram_livre_bytes: int, fator: float = 0.35) -> int:
     bytes_por_linha = largura * n_bandas * 8
     return max(1, int(ram_livre_bytes * fator / bytes_por_linha))
+def ler_chunk(args):
+    path_src, lin_ini, largura, n_lin = args
 
+    with rasterio.open(path_src) as src:
+        window = Window(0, lin_ini, largura, n_lin)
+        chunk = src.read(window=window)
+
+    return lin_ini, n_lin, chunk
 
 # ═══════════════════════════════════════════════════════════════════════════
 # CLASSE PRINCIPAL
@@ -250,12 +246,6 @@ class ClassificadorRaster:
         self.activation      = cfg.get("activation", "relu")
         self.dropout_rate    = cfg.get("dropout_rate", 0.0)
         self.salvar_modelo   = cfg.get("salvar_modelo", False)
-
-        # Performance
-        self.chunk_linhas        = cfg.get("chunk_linhas", 0)
-        self.num_chunks          = cfg.get("num_chunks", 0)
-        self.batch_size_treino   = cfg.get("batch_size_treino", 128)
-        self.batch_size_predicao = cfg.get("batch_size_predicao", 8192)
 
         # Estado interno
         self.src              = None
@@ -303,10 +293,6 @@ class ClassificadorRaster:
         print(f"  Salvar modelo          : {self.salvar_modelo}")
         if self.salvar_modelo:
             print(f"  Path modelo            : {self.path_modelo}")
-        print(f"  Chunk linhas           : {self.chunk_linhas if self.chunk_linhas > 0 else 'AUTO'}")
-        print(f"  Num chunks             : {self.num_chunks if self.num_chunks > 0 else 'AUTO'}")
-        print(f"  Batch treino           : {self.batch_size_treino}")
-        print(f"  Batch predicao         : {self.batch_size_predicao}")
         _sep()
 
     # ── Valida se as imagens existem e loga informações ─────────────────
@@ -554,8 +540,7 @@ class ClassificadorRaster:
 
     # ── 8. Predição chunked ──────────────────────────────────────────────
     # ── 8. Predição chunked ──────────────────────────────────────────────────
-    def prever_imagem(self, batch_size_pred: int = 8192,
-                        chunk_linhas: int = 0, num_chunks: int = 0):
+    def prever_imagem(self, batch_size_pred: int = 4096):
         """
         Classifica a imagem (path_img_teste) em chunks de linhas.
         - dtype de saída : uint8  (valores 0-255, suficiente para N classes)
@@ -588,14 +573,8 @@ class ClassificadorRaster:
         # ── tamanho do chunk ──────────────────────────────────────────────
         ram_livre  = psutil.virtual_memory().available
         ram_usar   = min(ram_livre, self.hw["ram_limite_bytes"])
-
-        if chunk_linhas > 0:
-            chunk_lin = chunk_linhas
-        elif num_chunks > 0:
-            chunk_lin = math.ceil(altura / num_chunks)
-        else:
-            chunk_lin = calcular_chunk_linhas(largura, self.n_bandas_feature, ram_usar)
-        n_chunks   = math.ceil(altura / chunk_lin)
+        chunk_lin = max(256, calcular_chunk_linhas(largura, self.n_bandas_feature, ram_usar) // 12)
+        n_chunks   = math.ceil(altura / chunk_lin)        
 
         print(f"  Dimensões            : {altura} x {largura} px | {n_bandas_total} bandas")
         print(f"  Total de pixels      : {self.total_pixels:,}")
@@ -652,72 +631,78 @@ class ClassificadorRaster:
             )
 
         # ── loop principal ────────────────────────────────────────────────
-        with rasterio.open(str(path_src)) as src, \
-             rasterio.open(str(self.path_saida), "w", **out_meta) as dst:
+        tarefas = []
 
-            for i in range(n_chunks):
-                lin_ini = i * chunk_lin
-                lin_fim = min(lin_ini + chunk_lin, altura)
-                n_lin   = lin_fim - lin_ini
-                window  = Window(0, lin_ini, largura, n_lin)
+        for i in range(n_chunks):
+            lin_ini = i * chunk_lin
+            lin_fim = min(lin_ini + chunk_lin, altura)
+            n_lin = lin_fim - lin_ini
+            tarefas.append((str(path_src), lin_ini, largura, n_lin))
 
-                # lê chunk
-                chunk = src.read(window=window)          # (B, H, W)  uint8
+        with rasterio.open(str(self.path_saida), "w", **out_meta) as dst:
 
-                # separa features e máscara
-                if self.usar_mascara and n_bandas_total > self.n_bandas_feature:
-                    mascara_2d = chunk[-1]               # última banda = alpha
-                    features   = chunk[:self.n_bandas_feature]
-                else:
-                    mascara_2d = None
-                    features   = chunk
+            with ProcessPoolExecutor(max_workers=os.cpu_count()) as executor:
 
-                # reshape para (N_pixels, N_features)
-                feat_2d = (features
-                           .transpose(1, 2, 0)
-                           .reshape(-1, self.n_bandas_feature)
-                           .astype(np.float32))
+                for i, retorno in enumerate(executor.map(ler_chunk, tarefas)):
 
-                # array de saída — começa todo como nodata
-                resultado = np.full(n_lin * largura, NODATA_OUT, dtype=np.uint8)
+                    lin_ini, n_lin, chunk = retorno
+                    window = Window(0, lin_ini, largura, n_lin)
 
-                # máscara booleana de pixels válidos
-                if mascara_2d is not None:
-                    validos = mascara_2d.reshape(-1) >= self.valor_min_alpha
-                else:
-                    validos = np.ones(feat_2d.shape[0], dtype=bool)
-
-                pixels_validos_chunk = int(validos.sum())
-
-                if pixels_validos_chunk > 0:
-                    pred_raw = self.model.predict(
-                        feat_2d[validos],
-                        batch_size=batch_size_pred,
-                        verbose=0
-                    )
-                    if self.num_classes == 2:
-                        pred_cls = np.round(pred_raw).astype(np.uint8).flatten()
+                    if self.usar_mascara and n_bandas_total > self.n_bandas_feature:
+                        mascara_2d = chunk[-1]
+                        features = chunk[:self.n_bandas_feature]
                     else:
-                        pred_cls = np.argmax(pred_raw, axis=1).astype(np.uint8)
+                        mascara_2d = None
+                        features = chunk
 
-                    resultado[validos] = pred_cls
+                    feat_2d = (
+                        features
+                        .transpose(1, 2, 0)
+                        .reshape(-1, self.n_bandas_feature)
+                        .astype(np.float64)
+                    )
 
-                pixels_ok  += pixels_validos_chunk
-                pixels_nan += int((~validos).sum())
+                    resultado = np.full(n_lin * largura, NODATA_OUT, dtype=np.uint8)
 
-                # grava chunk
-                dst.write(resultado.reshape(1, n_lin, largura), window=window)
+                    if mascara_2d is not None:
+                        validos = mascara_2d.reshape(-1) >= self.valor_min_alpha
+                    else:
+                        validos = np.ones(feat_2d.shape[0], dtype=bool)
 
-                # ── feedback ──────────────────────────────────────────────
-                elapsed = time.perf_counter() - t_inicio
-                pct     = (i + 1) / n_chunks * 100
-                ram_pct = psutil.virtual_memory().percent
-                _imprimir_progresso(i, pct, ram_pct, elapsed, pixels_validos_chunk)
+                    pixels_validos_chunk = int(validos.sum())
 
-                # libera memória
-                del chunk, features, feat_2d, resultado, pred_raw, pred_cls
-                if mascara_2d is not None:
-                    del mascara_2d
+                    if pixels_validos_chunk > 0:
+
+                        pred_raw = self.model.predict(
+                            feat_2d[validos],
+                            batch_size=batch_size_pred,
+                            verbose=0
+                        )
+
+                        if self.num_classes == 2:
+                            pred_cls = np.round(pred_raw).astype(np.uint8).flatten()
+                        else:
+                            pred_cls = np.argmax(pred_raw, axis=1).astype(np.uint8)
+
+                        resultado[validos] = pred_cls
+
+                    pixels_ok += pixels_validos_chunk
+                    pixels_nan += int((~validos).sum())
+
+                    dst.write(
+                        resultado.reshape(1, n_lin, largura),
+                        window=window
+                    )
+
+                    elapsed = time.perf_counter() - t_inicio
+                    pct = (i + 1) / n_chunks * 100
+                    ram_pct = psutil.virtual_memory().percent
+
+                    _imprimir_progresso(
+                        i, pct, ram_pct,
+                        elapsed,
+                        pixels_validos_chunk
+                    )
 
         # linha em branco após a barra
         print()
@@ -796,7 +781,6 @@ def exibir_relatorio_final(relatorio: dict, hw_info: dict,
     print("  HARDWARE")
     _sep("-")
     print(f"  Dispositivo TF         : {hw_info['device']}")
-    print(f"  Usar GPU (config)      : {hw_info.get('usar_gpu', True)}")
     print(f"  Threads CPU            : {hw_info['cpu_threads']}")
     print(f"  RAM total              : {hw_info['ram_total_gb']:.1f} GB")
     print(f"  RAM limite configurado : {hw_info['ram_limite_gb']:.1f} GB")
@@ -812,11 +796,7 @@ def exibir_relatorio_final(relatorio: dict, hw_info: dict,
 
 def main():
     cfg       = CONFIG.copy()
-    hw_info   = configurar_hardware(
-                    ram_limite_pct=cfg.get("ram_limite_pct", 70.0),
-                    usar_gpu=cfg.get("usar_gpu", True),
-                    cpu_threads=cfg.get("cpu_threads", 0),
-                )
+    hw_info   = configurar_hardware(ram_limite_pct=cfg.get("ram_limite_pct", 70.0))
     relatorio = {}
 
     clf = ClassificadorRaster(cfg=cfg, hw_info=hw_info)
@@ -853,10 +833,8 @@ def main():
         clf.avaliar()
 
     with Timer("8. Predicao + exportacao GeoTIFF (chunked)", relatorio):
-                clf.prever_imagem(
-            batch_size_pred = cfg.get("batch_size_predicao", 8192),
-            chunk_linhas    = cfg.get("chunk_linhas", 0),
-            num_chunks      = cfg.get("num_chunks", 0),
+        clf.prever_imagem(
+            batch_size_pred = cfg.get("batch_size_predicao", 4096),
         )
 
     with Timer("9. Finalizar", relatorio):

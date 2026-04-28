@@ -67,10 +67,10 @@ CONFIG = {
     "path_img": "dados/imagemTreino.tif",
 
     # Imagem a ser CLASSIFICADA (pode ser a mesma ou a versão completa)
-    "path_img_teste": "dados/imagemCompleta.tif",
+    "path_img_teste": "dados/imagemTreino.tif",
 
     # Onde salvar o GeoTIFF classificado
-    "path_saida": "resultado/mapa_classificado_CLAUDECODE_V2ALPHA250.tif",
+    "path_saida": "resultado/mapa_classificado_1M.tif",
 
     # ── Amostras ─────────────────────────────────────────────────────────
     # Cada entrada: [caminho_shapefile, id_classe]
