@@ -5,7 +5,9 @@ Controlador Principal para a UI do Classificador Raster Neural v6
 Logica de controle separada da view (MainWindow).
 """
 
-from PySide6.QtWidgets import QTableWidgetItem, QSpinBox, QPushButton, QFileDialog
+from pathlib import Path
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QTableWidgetItem, QLineEdit, QSpinBox, QPushButton, QFileDialog
 from dark_charcoal_style import DarkCharcoalStyle
 
 
@@ -14,6 +16,7 @@ class MainController:
         self.view = view
         self._connect_signals()
         self._init_defaults()
+        self._update_resumo()
 
     def _connect_signals(self):
         self.view.btn_executar.clicked.connect(self._on_executar)
@@ -41,15 +44,15 @@ class MainController:
 
     def _init_defaults(self):
         default_shps = [
-            ("dados/solo.shp", 0),
-            ("dados/floresta.shp", 1),
-            ("dados/palhada.shp", 2),
-            ("dados/daninhas.shp", 3),
+            ("dados/solo.shp", 0, "Solo"),
+            ("dados/floresta.shp", 1, "Floresta"),
+            ("dados/palhada.shp", 2, "Palhada"),
+            ("dados/daninhas.shp", 3, "Daninhas"),
         ]
-        for p, c in default_shps:
-            self._add_shp_row(p, c)
+        for p, c, legenda in default_shps:
+            self._add_shp_row(p, c, legenda)
 
-    def _add_shp_row(self, path: str, classe: int):
+    def _add_shp_row(self, path: str, classe: int, legenda: str = ""):
         row = self.view.table_shp.rowCount()
         self.view.table_shp.insertRow(row)
 
@@ -63,16 +66,20 @@ class MainController:
         spin_cls.setStyleSheet("background-color: transparent; border: none;")
         self.view.table_shp.setCellWidget(row, 1, spin_cls)
 
+        edit_legenda = QLineEdit(legenda)
+        edit_legenda.setPlaceholderText("Legenda da classe...")
+        self.view.table_shp.setCellWidget(row, 2, edit_legenda)
+
         btn_rem = QPushButton("Remover")
         btn_rem.setObjectName("btn_danger")
         btn_rem.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_rem.clicked.connect(lambda _, r=row: self._remove_shp_row(r))
-        self.view.table_shp.setCellWidget(row, 2, btn_rem)
+        self.view.table_shp.setCellWidget(row, 3, btn_rem)
 
     def _remove_shp_row(self, row: int):
         self.view.table_shp.removeRow(row)
         for r in range(self.view.table_shp.rowCount()):
-            btn = self.view.table_shp.cellWidget(r, 2)
+            btn = self.view.table_shp.cellWidget(r, 3)
             if btn:
                 try:
                     btn.clicked.disconnect()
@@ -91,7 +98,8 @@ class MainController:
                 w = self.view.table_shp.cellWidget(r, 1)
                 if isinstance(w, QSpinBox):
                     max_cls = max(max_cls, w.value())
-            self._add_shp_row(path, max_cls + 1)
+            default_legend = Path(path).stem
+            self._add_shp_row(path, max_cls + 1, default_legend)
             self._update_resumo()
 
     def _update_resumo(self):
@@ -145,3 +153,31 @@ class MainController:
         )
         if path:
             self.view.txt_log.append(f"> Config salva: {path}  [STUB]")
+
+    def get_shapefile_entries(self):
+        entries = []
+        for row in range(self.view.table_shp.rowCount()):
+            path_item = self.view.table_shp.item(row, 0)
+            cls_widget = self.view.table_shp.cellWidget(row, 1)
+            legend_widget = self.view.table_shp.cellWidget(row, 2)
+            if path_item and isinstance(cls_widget, QSpinBox):
+                legend = ""
+                if isinstance(legend_widget, QLineEdit):
+                    legend = legend_widget.text().strip()
+                entries.append({
+                    "path": path_item.text(),
+                    "class_id": cls_widget.value(),
+                    "legend": legend,
+                })
+        return entries
+
+    def get_output_path(self):
+        return self.view.row_img_saida.path()
+
+    def get_pipeline_config(self):
+        return {
+            "shapefiles": self.get_shapefile_entries(),
+            "output": self.get_output_path(),
+            "training_image": self.view.row_img_treino.path(),
+            "classification_image": self.view.row_img_classif.path(),
+        }

@@ -67,10 +67,7 @@ QGroupBox {{
     border: 1px solid {c.BORDER};
     border-radius: 10px;
     margin-top: 14px;
-    padding-top: 10px;
-    padding-bottom: 10px;
-    padding-left: 14px;
-    padding-right: 14px;
+    padding: 2px;
     font-weight: 600;
     font-size: 13px;
     color: {c.TEXT_PRIMARY};
@@ -78,7 +75,7 @@ QGroupBox {{
 QGroupBox::title {{
     subcontrol-origin: margin;
     left: 14px;
-    padding: 0 8px;
+    padding: 0 2px;
     color: {c.ACCENT_GOLD};
     font-weight: 700;
     font-size: 13px;
@@ -110,7 +107,7 @@ QLineEdit {{
     background-color: {c.INPUT_BG};
     border: 1px solid {c.BORDER};
     border-radius: 6px;
-    padding: 6px 10px;
+    padding: 2px 2px;
     color: {c.TEXT_PRIMARY};
     selection-background-color: {c.ACCENT_GOLD};
     selection-color: {c.DARK_BG};
@@ -123,7 +120,7 @@ QSpinBox, QDoubleSpinBox {{
     background-color: {c.INPUT_BG};
     border: 1px solid {c.BORDER};
     border-radius: 6px;
-    padding: 5px 8px;
+    padding: 2px 2px;
     color: {c.TEXT_PRIMARY};
 }}
 QSpinBox:focus, QDoubleSpinBox:focus {{
@@ -145,7 +142,7 @@ QComboBox {{
     background-color: {c.INPUT_BG};
     border: 1px solid {c.BORDER};
     border-radius: 6px;
-    padding: 5px 10px;
+    padding: 2px 2px;
     color: {c.TEXT_PRIMARY};
     min-width: 100px;
 }}
@@ -203,7 +200,7 @@ QTableWidget {{
     color: {c.TEXT_PRIMARY};
 }}
 QTableWidget::item {{
-    padding: 6px;
+    padding: 2px;
     border-bottom: 1px solid {c.BORDER};
 }}
 QTableWidget::item:selected {{
@@ -213,7 +210,7 @@ QTableWidget::item:selected {{
 QHeaderView::section {{
     background-color: {c.CARD_BG};
     color: {c.TEXT_SECONDARY};
-    padding: 8px;
+    padding: 2px;
     border: none;
     border-bottom: 2px solid {c.ACCENT_GOLD};
     font-weight: 600;
@@ -223,7 +220,7 @@ QTableWidget QPushButton {{
     background-color: {c.DANGER};
     color: white;
     border-radius: 4px;
-    padding: 2px 8px;
+    padding: 2px 2px;
     font-size: 11px;
     min-width: 60px;
 }}
@@ -235,7 +232,7 @@ QTextEdit {{
     color: {c.TEXT_SECONDARY};
     font-family: 'Consolas', 'Monaco', monospace;
     font-size: 12px;
-    padding: 8px;
+    padding: 2px;
 }}
 
 QProgressBar {{
@@ -265,7 +262,7 @@ QPushButton#btn_primary {{
     color: {c.DARK_BG};
     border: none;
     border-radius: 6px;
-    padding: 6px 18px;
+    padding: 2px 2px;
     font-weight: 700;
     font-size: 13px;
 }}
@@ -285,7 +282,7 @@ QPushButton#btn_secondary {{
     color: {c.TEXT_PRIMARY};
     border: 1px solid {c.BORDER};
     border-radius: 5px;
-    padding: 5px 12px;
+    padding: 2px 2px;
     font-weight: 600;
     font-size: 12px;
 }}
@@ -300,7 +297,7 @@ QPushButton#btn_action {{
     color: white;
     border: none;
     border-radius: 4px;
-    padding: 4px 10px;
+    padding: 2px 2px;
     font-weight: 600;
     font-size: 11px;
 }}
@@ -312,7 +309,7 @@ QPushButton#btn_danger {{
     color: white;
     border: none;
     border-radius: 4px;
-    padding: 4px 10px;
+    padding: 2px 2px;
     font-weight: 600;
     font-size: 11px;
 }}

@@ -183,6 +183,7 @@ class MainWindow(QMainWindow):
         lay_img.addWidget(self.row_img_treino)
         lay_img.addWidget(self.row_img_classif)
         lay_img.addWidget(self.row_img_saida)
+
         left_layout.addWidget(grp_imagens)
 
         # Grupo: Amostras
@@ -190,9 +191,9 @@ class MainWindow(QMainWindow):
         lay_amostras = QVBoxLayout(grp_amostras)
         lay_amostras.setSpacing(10)
 
-        self.table_shp = QTableWidget(0, 3)
+        self.table_shp = QTableWidget(0, 4)
         self.table_shp.setHorizontalHeaderLabels(
-            ["Caminho do Shapefile", "ID Classe", "Acao"]
+            ["Caminho do Shapefile", "ID Classe", "Legenda", "Acao"]
         )
         self.table_shp.horizontalHeader().setStretchLastSection(False)
         self.table_shp.horizontalHeader().setSectionResizeMode(
@@ -204,14 +205,18 @@ class MainWindow(QMainWindow):
         self.table_shp.horizontalHeader().setSectionResizeMode(
             2, QHeaderView.ResizeMode.Fixed
         )
+        self.table_shp.horizontalHeader().setSectionResizeMode(
+            3, QHeaderView.ResizeMode.Fixed
+        )
         self.table_shp.setColumnWidth(1, 80)
-        self.table_shp.setColumnWidth(2, 90)
+        self.table_shp.setColumnWidth(2, 140)
+        self.table_shp.setColumnWidth(3, 90)
         self.table_shp.setMinimumHeight(140)
 
         btn_add_shp = QPushButton("+ Adicionar Shapefile")
         btn_add_shp.setObjectName("btn_action")
         btn_add_shp.setCursor(Qt.CursorShape.PointingHandCursor)
-        # Connection moved to controller
+        self.btn_add_shp = btn_add_shp
 
         lay_amostras.addWidget(self.table_shp)
         lay_amostras.addWidget(btn_add_shp, alignment=Qt.AlignmentFlag.AlignLeft)
@@ -391,7 +396,6 @@ class MainWindow(QMainWindow):
             "  padding: 10px;"
             "}"
         )
-        self._update_resumo()
         card_lay.addWidget(self.lbl_resumo)
 
         right_layout.addWidget(card_preview)
@@ -443,27 +447,7 @@ class MainWindow(QMainWindow):
         splitter.setHandleWidth(2)
         main_layout.addWidget(splitter, 1)
 
-        self.btn_executar.clicked.connect(self._on_executar)
-        self.btn_load_cfg.clicked.connect(self._on_load_cfg)
-        self.btn_save_cfg.clicked.connect(self._on_save_cfg)
-
-        widgets_bind = [
-            self.row_img_treino.edit, self.row_img_classif.edit,
-            self.row_img_saida.edit, self.edit_camadas,
-            self.combo_ativacao, self.spin_dropout,
-            self.spin_epochs, self.spin_batch_train,
-            self.spin_batch_pred, self.spin_test_size,
-            self.spin_ram, self.chk_mascara, self.chk_salvar_modelo
-        ]
-        for w in widgets_bind:
-            if hasattr(w, "textChanged"):
-                w.textChanged.connect(self._update_resumo)
-            elif hasattr(w, "currentTextChanged"):
-                w.currentTextChanged.connect(self._update_resumo)
-            elif hasattr(w, "valueChanged"):
-                w.valueChanged.connect(self._update_resumo)
-            elif hasattr(w, "stateChanged"):
-                w.stateChanged.connect(self._update_resumo)
+        self.controller = MainController(self)
 
     def _add_shp_row(self, path: str, classe: int):
         row = self.table_shp.rowCount()
@@ -495,72 +479,6 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
                 btn.clicked.connect(lambda _, nr=r: self._remove_shp_row(nr))
-        self._update_resumo()
-
-    def _on_add_shp(self):
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Adicionar Shapefile", "", "Shapefile (*.shp)"
-        )
-        if path:
-            max_cls = -1
-            for r in range(self.table_shp.rowCount()):
-                w = self.table_shp.cellWidget(r, 1)
-                if isinstance(w, QSpinBox):
-                    max_cls = max(max_cls, w.value())
-            self._add_shp_row(path, max_cls + 1)
-            self._update_resumo()
-
-    def _update_resumo(self):
-        treino = self.row_img_treino.path() or "—"
-        classif = self.row_img_classif.path() or "—"
-        saida = self.row_img_saida.path() or "—"
-        camadas = self.edit_camadas.text() or "—"
-        ativ = self.combo_ativacao.currentText()
-        drop = self.spin_dropout.value()
-        ep = self.spin_epochs.value()
-        bt = self.spin_batch_train.value()
-        bp = self.spin_batch_pred.value()
-        ram = self.spin_ram.value()
-        mask = "Sim" if self.chk_mascara.isChecked() else "Nao"
-
-        resumo = (
-            f"<b>Imagem Treino:</b> {treino}<br>"
-            f"<b>Imagem Classif.:</b> {classif}<br>"
-            f"<b>Saida:</b> {saida}<br>"
-            f"<b>Rede:</b> [{camadas}] — ativacao {ativ}, dropout {drop}<br>"
-            f"<b>Treino:</b> {ep} epocas | batch {bt} / pred {bp}<br>"
-            f"<b>RAM limite:</b> {ram}% | Mascara: {mask}"
-        )
-        self.lbl_resumo.setHtml(resumo)
-
-    def _on_executar(self):
-        self.txt_log.append("> Pipeline iniciado... [STUB — integrar logica posteriormente]")
-        self.progress.setValue(10)
-        self.badge_status.setText("EXECUTANDO")
-        self.badge_status.setStyleSheet(
-            "QLabel {"
-            f"  background-color: {DarkCharcoalStyle.WARNING};"
-            f"  color: {DarkCharcoalStyle.DARK_BG};"
-            "  border-radius: 6px;"
-            "  padding: 4px 14px;"
-            "  font-weight: 700;"
-            "  font-size: 11px;"
-            "}"
-        )
-
-    def _on_load_cfg(self):
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Carregar Configuracao", "", "JSON (*.json)"
-        )
-        if path:
-            self.txt_log.append(f"> Config carregada: {path}  [STUB]")
-
-    def _on_save_cfg(self):
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Salvar Configuracao", "config_ui.json", "JSON (*.json)"
-        )
-        if path:
-            self.txt_log.append(f"> Config salva: {path}  [STUB]")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
