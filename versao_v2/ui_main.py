@@ -17,8 +17,8 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
-from dark_charcoal_style import DarkCharcoalStyle
-from main_controller import MainController
+from core.dark_charcoal_style import DarkCharcoalStyle
+from core.main_controller import MainController
 
 
 # ═══════════════════════════════════════════════════════════════════════════

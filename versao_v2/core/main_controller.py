@@ -8,7 +8,7 @@ Logica de controle separada da view (MainWindow).
 from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QTableWidgetItem, QLineEdit, QSpinBox, QPushButton, QFileDialog
-from dark_charcoal_style import DarkCharcoalStyle
+from core.dark_charcoal_style import DarkCharcoalStyle
 
 
 class MainController:
