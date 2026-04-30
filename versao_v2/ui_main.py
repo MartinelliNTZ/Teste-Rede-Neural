@@ -346,6 +346,26 @@ class MainWindow(QMainWindow):
         lay_modelo = QVBoxLayout(grp_modelo)
         lay_modelo.setSpacing(10)
 
+        row_model_action = QHBoxLayout()
+        row_model_action.setSpacing(12)
+        row_model_action.addWidget(QLabel("Acao do Modelo:"))
+        self.combo_model_action = QComboBox()
+        self.combo_model_action.addItems([
+            "Treinar modelo novo",
+            "Treinar modelo existente",
+            "Usar modelo existente"
+        ])
+        self.combo_model_action.setCurrentText("Treinar modelo novo")
+        row_model_action.addWidget(self.combo_model_action, 1)
+        lay_modelo.addLayout(row_model_action)
+
+        self.row_modelo_existente = PathBrowseRow(
+            "Modelo Existente", "",
+            file_filter="Keras Model (*.keras)"
+        )
+        self.row_modelo_existente.setVisible(False)
+        lay_modelo.addWidget(self.row_modelo_existente)
+
         self.chk_salvar_modelo = QCheckBox("Salvar modelo treinado em disco (.keras)")
         self.chk_salvar_modelo.setChecked(True)
         lay_modelo.addWidget(self.chk_salvar_modelo)

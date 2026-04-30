@@ -23,6 +23,7 @@ class MainController:
         self.view.btn_load_cfg.clicked.connect(self._on_load_cfg)
         self.view.btn_save_cfg.clicked.connect(self._on_save_cfg)
         self.view.btn_add_shp.clicked.connect(self._on_add_shp)
+        self.view.combo_model_action.currentTextChanged.connect(self._on_model_action_changed)
 
         widgets_bind = [
             self.view.row_img_treino.edit, self.view.row_img_classif.edit,
@@ -30,7 +31,8 @@ class MainController:
             self.view.combo_ativacao, self.view.spin_dropout,
             self.view.spin_epochs, self.view.spin_batch_train,
             self.view.spin_batch_pred, self.view.spin_test_size,
-            self.view.spin_ram, self.view.chk_mascara, self.view.chk_salvar_modelo
+            self.view.spin_ram, self.view.chk_mascara, self.view.chk_salvar_modelo,
+            self.view.combo_model_action
         ]
         for w in widgets_bind:
             if hasattr(w, "textChanged"):
@@ -102,6 +104,12 @@ class MainController:
             self._add_shp_row(path, max_cls + 1, default_legend)
             self._update_resumo()
 
+    def _on_model_action_changed(self):
+        action = self.view.combo_model_action.currentText()
+        show_existing = action in ["Treinar modelo existente", "Usar modelo existente"]
+        self.view.row_modelo_existente.setVisible(show_existing)
+        self._update_resumo()
+
     def _update_resumo(self):
         treino = self.view.row_img_treino.path() or "—"
         classif = self.view.row_img_classif.path() or "—"
@@ -115,10 +123,17 @@ class MainController:
         ram = self.view.spin_ram.value()
         mask = "Sim" if self.view.chk_mascara.isChecked() else "Nao"
 
+        model_action = self.view.combo_model_action.currentText()
         resumo = (
             f"<b>Imagem Treino:</b> {treino}<br>"
             f"<b>Imagem Classif.:</b> {classif}<br>"
             f"<b>Saida:</b> {saida}<br>"
+            f"<b>Acao Modelo:</b> {model_action}<br>"
+        )
+        if self.view.row_modelo_existente.isVisible():
+            existing_model = self.view.row_modelo_existente.path() or "—"
+            resumo += f"<b>Modelo Existente:</b> {existing_model}<br>"
+        resumo += (
             f"<b>Rede:</b> [{camadas}] — ativacao {ativ}, dropout {drop}<br>"
             f"<b>Treino:</b> {ep} epocas | batch {bt} / pred {bp}<br>"
             f"<b>RAM limite:</b> {ram}% | Mascara: {mask}"
@@ -174,10 +189,19 @@ class MainController:
     def get_output_path(self):
         return self.view.row_img_saida.path()
 
+    def get_model_action(self):
+        return self.view.combo_model_action.currentText()
+
     def get_pipeline_config(self):
-        return {
+        config = {
             "shapefiles": self.get_shapefile_entries(),
             "output": self.get_output_path(),
             "training_image": self.view.row_img_treino.path(),
             "classification_image": self.view.row_img_classif.path(),
+            "model_action": self.get_model_action(),
+            "save_model": self.view.chk_salvar_modelo.isChecked(),
+            "model_path": self.view.row_modelo_path.path(),
         }
+        if self.view.combo_model_action.currentText() in ["Treinar modelo existente", "Usar modelo existente"]:
+            config["existing_model_path"] = self.view.row_modelo_existente.path()
+        return config
