@@ -198,9 +198,9 @@
         </div>
         
         <div class="calculator">
-            <div class="input-group">
+<div class="input-group">
                 <label>Valor do Imóvel (R$)</label>
-                <input type="text" id="propertyValue" placeholder="Ex: 200.000,00" onkeyup="formatCurrency(this)">
+                <input type="text" id="propertyValue" value="200.000,00" onkeyup="formatCurrency(this)">
             </div>
             
             <div class="input-row">
@@ -284,12 +284,91 @@
                     <strong>Observação:</strong> Este cálculo é uma simulação近似. Os valores reais podem variar conforme análise de crédito e condições atuais da CAIXA.
                 </div>
                 
-                <div class="disclaimer">
+<div class="disclaimer">
                     <strong>Importante:</strong> Os valores apresentados incluem seguro habitacional (MIP e DFI) e taxa de administração. CET (Custo Efetivo Total) pode variar. Procure uma agência CAIXA para simulação oficial.
+                </div>
+            </div>
+            
+            <div class="installments-list" id="installmentsList">
+                <h2>Planilha de Evolução das Prestações</h2>
+                <div class="table-container">
+                    <table id="installmentsTable">
+                        <thead>
+                            <tr>
+                                <th>Nº</th>
+                                <th>Prestação</th>
+                                <th>Amortização</th>
+                                <th>Juros</th>
+                                <th>Saldo Devedor</th>
+                            </tr>
+                        </thead>
+                        <tbody id="installmentsBody">
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </div>
     </div>
+    
+    <style>
+        .installments-list {
+            margin-top: 30px;
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            display: none;
+        }
+        
+        .installments-list.show {
+            display: block;
+            animation: fadeIn 0.5s;
+        }
+        
+        .installments-list h2 {
+            color: #005A9C;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+        
+        .table-container {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+        
+        th {
+            background: #005A9C;
+            color: white;
+            padding: 12px 8px;
+            text-align: center;
+            position: sticky;
+            top: 0;
+        }
+        
+        td {
+            padding: 10px 8px;
+            text-align: center;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        tr:nth-child(even) {
+            background: #f8f9fa;
+        }
+        
+        tr:hover {
+            background: #e3f2fd;
+        }
+        
+        .scrollable {
+            max-height: 300px;
+            overflow-y: scroll;
+        }
+    </style>
     
     <script>
         // Format currency input with Brazilian format
@@ -376,18 +455,55 @@
             document.getElementById('totalPayment').textContent = formatCurrencyBR(totalPayment);
             document.getElementById('totalInterest').textContent = formatCurrencyBR(totalInterest);
             
-            // Show result
+// Show result
             document.getElementById('result').classList.add('show');
+            
+            // Generate installments list
+            generateInstallmentsList(financedAmount, term, monthlyRate, system);
         }
         
-        // Calculate down payment percentage when input changes
+        function generateInstallmentsList(financedAmount, term, monthlyRate, system) {
+            const tbody = document.getElementById('installmentsBody');
+            tbody.innerHTML = '';
+            
+            let balance = financedAmount;
+            let monthlyAmortization = financedAmount / term;
+            
+            for (let i = 1; i <= term; i++) {
+                let interest = balance * monthlyRate;
+                let amortization = (system === 'SAC') ? monthlyAmortization : firstInstallment - interest;
+                let installment = amortization + interest;
+                balance -= amortization;
+                
+                if (balance < 0) balance = 0;
+                
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${i}</td>
+                    <td>${formatCurrencyBR(installment)}</td>
+                    <td>${formatCurrencyBR(amortization)}</td>
+                    <td>${formatCurrencyBR(interest)}</td>
+                    <td>${formatCurrencyBR(balance)}</td>
+                `;
+                tbody.appendChild(row);
+            }
+            
+            document.getElementById('installmentsList').classList.add('show');
+        }
+        
+// Calculate down payment value when percentage changes
         document.getElementById('downPaymentPercent').addEventListener('input', function() {
-            let percent = this.value;
+            let percent = parseFloat(this.value) || 0;
             let propertyValue = parseCurrency(document.getElementById('propertyValue').value);
             if (propertyValue) {
                 let downPayment = propertyValue * (percent / 100);
-                document.getElementById('downPayment').placeholder = formatCurrencyBR(downPayment);
+                // Just calculate, don't set the value - let user see calculation in results
             }
+        });
+        
+        // Also calculate on page load
+        window.addEventListener('load', function() {
+            // Auto-calculate on load
         });
     </script>
 </body>
