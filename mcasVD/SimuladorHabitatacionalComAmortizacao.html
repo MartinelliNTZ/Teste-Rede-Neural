@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulador Habitacional CAIXA - Amortização</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #004775 0%, #005A9C 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container { max-width: 900px; margin: 0 auto; }
+        .header { text-align: center; color: white; margin-bottom: 30px; }
+        .header h1 { font-size: 2rem; margin-bottom: 10px; }
+        .calculator {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        .input-group { margin-bottom: 20px; }
+        .input-group label {
+            display: block;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 8px;
+        }
+        .input-group input, .input-group select {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 1.1rem;
+        }
+        .input-group input:focus, .input-group select:focus {
+            outline: none;
+            border-color: #005A9C;
+        }
+        .input-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        .btn-calculate {
+            width: 100%;
+            padding: 18px;
+            background: #005A9C;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1.2rem;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        .btn-calculate:hover { background: #004775; }
+        .result {
+            margin-top: 30px;
+            padding: 25px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            display: none;
+        }
+        .result.show { display: block; animation: fadeIn 0.5s; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .result h2 { color: #005A9C; margin-bottom: 20px; text-align: center; }
+        .result-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+        }
+        .result-item {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .result-item.highlight {
+            grid-column: 1 / -1;
+            background: #005A9C;
+            color: white;
+        }
+        .result-item.highlight .value { font-size: 2rem; }
+        .result-item .label {
+            font-size: 0.85rem;
+            color: #666;
+            margin-bottom: 5px;
+        }
+        .result-item.highlight .label { color: rgba(255,255,255,0.8); }
+        .result-item .value {
+            font-size: 1.3rem;
+            font-weight: bold;
+            color: #005A9C;
+        }
+        .result-item.highlight .value { color: white; }
+        .info-box {
+            margin-top: 20px;
+            padding: 15px;
+            background: #fff3cd;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            color: #856404;
+        }
+        .disclaimer {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            font-size: 0.8rem;
+            color: #666;
+        }
+        
+        /* Table styles */
+        .table-section {
+            margin-top: 30px;
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            display: none;
+        }
+        .table-section.show { display: block; }
+        .table-section h2 {
+            color: #005A9C;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+        .table-wrapper {
+            max-height: 500px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+        }
+        th {
+            background: #005A9C;
+            color: white;
+            padding: 12px 8px;
+            text-align: center;
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+        td {
+            padding: 8px 6px;
+            text-align: center;
+            border-bottom: 1px solid #eee;
+        }
+        tr:nth-child(even) { background: #f8f9fa; }
+        tr:hover { background: #e3f2fd; }
+        
+        /* Pagination */
+        .pagination {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        .pagination button {
+            padding: 8px 15px;
+            background: #005A9C;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .pagination button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        
+        @media (max-width: 600px) {
+            .input-row, .result-grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🏠 Simulador Habitacional CAIXA</h1>
+            <p>Simulação com Amortização</p>
+        </div>
+        
+        <div class="calculator">
+            <div class="input-group">
+                <label>Valor do Imóvel (R$)</label>
+                <input type="text" id="propertyValue" value="200000" oninput="formatCurrency(this)">
+            </div>
+            
+            <div class="input-row">
+                <div class="input-group">
+                    <label>Entrada (R$)</label>
+                    <input type="text" id="downPayment" value="40000" oninput="formatCurrency(this)">
+                </div>
+                
+                <div class="input-group">
+                    <label>Nº de Parcelas</label>
+                    <input type="number" id="numInstallments" value="420" min="1" max="420">
+                </div>
+            </div>
+            
+            <div class="input-row">
+                <div class="input-group">
+                    <label>Taxa de Juros (% aa)</label>
+                    <input type="number" id="interestRate" value="6.5" step="0.01">
+                </div>
+                
+                <div class="input-group">
+                    <label>Sistema</label>
+                    <select id="amortizationSystem">
+                        <option value="SAC">SAC - Amortização Constante</option>
+                        <option value="PRICE">PRICE - Français</option>
+                    </select>
+                </div>
+            </div>
+            
+            <button class="btn-calculate" onclick="calculate()">✏️ Calcular</button>
+            
+            <div class="result" id="result">
+                <h2>Resultado da Simulação</h2>
+                
+                <div class="result-grid">
+                    <div class="result-item highlight">
+                        <div class="label">Valor Financiado</div>
+                        <div class="value" id="financedAmount">R$ 0,00</div>
+                    </div>
+                    
+                    <div class="result-item">
+                        <div class="label">1ª Parcela</div>
+                        <div class="value" id="firstInstallment">R$ 0,00</div>
+                    </div>
+                    
+                    <div class="result-item">
+                        <div class="label">Última Parcela</div>
+                        <div class="value" id="lastInstallment">R$ 0,00</div>
+                    </div>
+                    
+                    <div class="result-item">
+                        <div class="label">Total Juros</div>
+                        <div class="value" id="totalInterest">R$ 0,00</div>
+                    </div>
+                    
+                    <div class="result-item">
+                        <div class="label">Total a Pagar</div>
+                        <div class="value" id="totalPayment">R$ 0,00</div>
+                    </div>
+                </div>
+                
+                <div class="info-box">
+                    <strong>SAC:</strong> Parcelas DECRESCENTES - Amortização constante, juros decreasing.<br>
+                    <strong>PRICE:</strong> Parcelas FIXAS - Mesmo valor todo período.
+                </div>
+            </div>
+            
+<div class="table-section" id="tableSection">
+                <h2>Evolução das Parcelas (Primeira → Última)</h2>
+                <div class="table-wrapper">
+                    <table id="amortizationTable">
+                        <thead>
+                            <tr>
+                                <th>Parcela</th>
+                                <th>Valor Mensal</th>
+                                <th>Amortização</th>
+                                <th>Juros</th>
+                                <th>Saldo Devedor</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tableBody">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <div class="disclaimer">
+                Simulação近似. Valores reais podem variar. Consulte a CAIXA.
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        let currentPage = 1;
+        let itemsPerPage = 24;
+        let allRows = [];
+        
+        function formatCurrency(input) {
+            let value = input.value.replace(/\D/g, '');
+            if (value) {
+                value = (parseInt(value) / 100).toFixed(2).replace('.', ',');
+                input.value = value.replace(/(\d)(?=(\d{3})+(?!\d))/g, '$1.');
+            }
+        }
+        
+        function parseCurrency(value) {
+            if (!value) return 0;
+            return parseFloat(value.replace(/\./g, '').replace(',', '.'));
+        }
+        
+        function formatBR(value) {
+            return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        }
+        
+        function calculate() {
+            // Get values
+            let propertyValue = parseCurrency(document.getElementById('propertyValue').value);
+            let downPayment = parseCurrency(document.getElementById('downPayment').value);
+            let numInstallments = parseInt(document.getElementById('numInstallments').value) || 1;
+            let interestRate = parseFloat(document.getElementById('interestRate').value);
+            let system = document.getElementById('amortizationSystem').value;
+            
+            if (!propertyValue || propertyValue === 0) {
+                alert('Insira o valor do imóvel!');
+                return;
+            }
+            
+            // Calculate financed amount
+            let financedAmount = propertyValue - downPayment;
+            if (financedAmount < 0) financedAmount = 0;
+            
+            // Monthly interest rate
+            let monthlyRate = (interestRate / 100) / 12;
+            
+            // Initialize variables
+            let balance = financedAmount;
+            let totalInterest = 0;
+            let totalPayment = 0;
+            allRows = [];
+            
+            if (numInstallments === 1) {
+                // Single payment - simple calculation
+                let interest = financedAmount * monthlyRate;
+                let installment = financedAmount + interest;
+                totalInterest = interest;
+                totalPayment = installment;
+                balance = 0;
+                
+                allRows.push({
+                    n: 1,
+                    installment: installment,
+                    amortization: financedAmount,
+                    interest: interest,
+                    balance: 0
+                });
+            } else {
+                // Multiple installments - proper amortization
+                let monthlyAmortization;
+                
+                if (system === 'SAC') {
+                    // SAC: Constant amortization
+                    monthlyAmortization = financedAmount / numInstallments;
+                } else {
+                    // PRICE: Fixed payment
+                    let factor = Math.pow(1 + monthlyRate, numInstallments);
+                    let fixedInstallment = financedAmount * (monthlyRate * factor) / (factor - 1);
+                    monthlyAmortization = fixedInstallment;
+                }
+                
+                // Generate all installments
+                for (let i = 1; i <= numInstallments; i++) {
+                    let interest = balance * monthlyRate;
+                    let amortization, installment;
+                    
+                    if (system === 'SAC') {
+                        // SAC: constant amortization, decreasing interest
+                        amortization = monthlyAmortization;
+                        installment = amortization + interest;
+                    } else {
+                        // PRICE: fixed installment, varying proportions
+                        installment = monthlyAmortization;
+                        amortization = installment - interest;
+                    }
+                    
+                    // Last installment - settle the balance
+                    if (i === numInstallments) {
+                        if (system === 'PRICE') {
+                            amortization = balance;
+                            installment = balance + interest;
+                        } else {
+                            amortization = balance;
+                            installment = balance + interest;
+                        }
+                    }
+                    
+                    balance -= amortization;
+                    if (balance < 0.01) balance = 0;
+                    
+                    totalInterest += interest;
+                    totalPayment += installment;
+                    
+                    allRows.push({
+                        n: i,
+                        installment: installment,
+                        amortization: amortization,
+                        interest: interest,
+                        balance: balance
+                    });
+                }
+            }
+            
+            // Display results
+            document.getElementById('financedAmount').textContent = formatBR(financedAmount);
+            document.getElementById('firstInstallment').textContent = formatBR(allRows[0].installment);
+            document.getElementById('lastInstallment').textContent = formatBR(allRows[allRows.length - 1].installment);
+            document.getElementById('totalInterest').textContent = formatBR(totalInterest);
+            document.getElementById('totalPayment').textContent = formatBR(totalPayment);
+            
+            // Show sections
+            document.getElementById('result').classList.add('show');
+            document.getElementById('tableSection').classList.add('show');
+            
+// Show table - only key points (first, then every 60 months, then last)
+            renderSummaryTable();
+        }
+        
+        function renderSummaryTable() {
+            let tbody = document.getElementById('tableBody');
+            tbody.innerHTML = '';
+            
+            let n = allRows.length;
+            let step = 60; // Show every 5 years
+            
+            // Always show #1
+            let row1 = allRows[0];
+            addRow(tbody, row1.n, row1.installment, row1.amortization, row1.interest, row1.balance);
+            
+            // Show every step until the last
+            let showPoints = [];
+            for (let i = step; i < n; i += step) {
+                if (i < n - 1) showPoints.push(i);
+            }
+            
+            // Show intermediate points
+            for (let idx of showPoints) {
+                let row = allRows[idx];
+                addRow(tbody, row.n, row.installment, row.amortization, row.interest, row.balance);
+            }
+            
+            // Always show last
+            let lastRow = allRows[n - 1];
+            if (lastRow.n !== row1.n) {
+                addRow(tbody, lastRow.n, lastRow.installment, lastRow.amortization, lastRow.interest, lastRow.balance);
+            }
+        }
+        
+        function addRow(tbody, n, inst, amort, int, bal) {
+            let tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${n}</td>
+                <td>${formatBR(inst)}</td>
+                <td>${formatBR(amort)}</td>
+                <td>${formatBR(int)}</td>
+                <td>${formatBR(bal)}</td>
+            `;
+            tbody.appendChild(tr);
+        }
+    </script>
+</body>
+</html>
