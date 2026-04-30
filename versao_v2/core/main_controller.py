@@ -5,6 +5,22 @@ Controlador Principal para a UI do Classificador Raster Neural v6
 Logica de controle separada da view (MainWindow).
 """
 
+import os
+import sys
+
+# ═══════════════════════════════════════════════════════════════════════
+# SUPressao de warnings do TensorFlow — DEVE ser configurado antes dos imports
+# ═══════════════════════════════════════════════════════════════════════
+# Ja configurado no launcher.py, mas redundante aqui para garantir
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
+os.environ["TF_CPP_MAX_LOG_LEVEL"] = "3"
+
+import warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", category=UserWarning, module="keras")
+
 import json
 from pathlib import Path
 

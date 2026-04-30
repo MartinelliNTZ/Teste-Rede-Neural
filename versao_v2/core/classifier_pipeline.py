@@ -106,6 +106,7 @@ class ClassifierPipeline:
                 split.Y_train,
                 epochs=self.config.epochs,
                 batch_size=self.config.batch_size_train,
+                logger=self._log,
             )
             if self.config.save_model:
                 self._log(f"Salvando modelo em {self.config.model_path}")
