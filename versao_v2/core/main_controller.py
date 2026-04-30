@@ -5,10 +5,41 @@ Controlador Principal para a UI do Classificador Raster Neural v6
 Logica de controle separada da view (MainWindow).
 """
 
+import json
 from pathlib import Path
-from PySide6.QtCore import Qt
+
+from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import QTableWidgetItem, QLineEdit, QSpinBox, QPushButton, QFileDialog
+
 from core.dark_charcoal_style import DarkCharcoalStyle
+from core.classifier_pipeline import ClassifierPipeline
+from core.pipeline_config import PipelineConfig, PipelineConfigError
+
+
+class PipelineWorker(QThread):
+    log = Signal(str)
+    progress = Signal(int, str)
+    finished = Signal(str)
+    error = Signal(str)
+
+    def __init__(self, config: PipelineConfig, parent=None):
+        super().__init__(parent)
+        self.config = config
+
+    def run(self):
+        try:
+            pipeline = ClassifierPipeline(
+                config=self.config,
+                logger=self.log.emit,
+                progress_callback=self._emit_progress,
+            )
+            pipeline.execute()
+            self.finished.emit("Pipeline concluído com sucesso")
+        except Exception as exc:
+            self.error.emit(str(exc))
+
+    def _emit_progress(self, percent: int, message: str) -> None:
+        self.progress.emit(percent, message)
 
 
 class MainController:
@@ -17,6 +48,7 @@ class MainController:
         self._connect_signals()
         self._init_defaults()
         self._update_resumo()
+        self.worker = None
 
     def _connect_signals(self):
         self.view.btn_executar.clicked.connect(self._on_executar)
@@ -141,12 +173,101 @@ class MainController:
         self.view.lbl_resumo.setHtml(resumo)
 
     def _on_executar(self):
-        self.view.txt_log.append("> Pipeline iniciado... [STUB — integrar logica posteriormente]")
-        self.view.progress.setValue(10)
-        self.view.badge_status.setText("EXECUTANDO")
+        if self.worker is not None and self.worker.isRunning():
+            self._append_log("> O pipeline já está em execução")
+            return
+
+        pipeline_data = self.get_pipeline_config()
+        try:
+            config = PipelineConfig.from_dict(pipeline_data)
+        except PipelineConfigError as exc:
+            self._append_log(f"> Configuração inválida: {exc}")
+            return
+
+        self._append_log("> Pipeline iniciado")
+        self._set_running_state(True)
+        self.worker = PipelineWorker(config)
+        self.worker.log.connect(self._append_log)
+        self.worker.progress.connect(self._on_progress_update)
+        self.worker.finished.connect(self._on_pipeline_finished)
+        self.worker.error.connect(self._on_pipeline_error)
+        self.worker.start()
+
+    def _on_load_cfg(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self.view, "Carregar Configuracao", "", "JSON (*.json)"
+        )
+        if not path:
+            return
+        try:
+            config = PipelineConfig.load(Path(path))
+            self._populate_fields(config)
+            self._append_log(f"> Configuração carregada: {path}")
+        except Exception as exc:
+            self._append_log(f"> Falha ao carregar configuração: {exc}")
+
+    def _on_save_cfg(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self.view, "Salvar Configuracao", "config_ui.json", "JSON (*.json)"
+        )
+        if not path:
+            return
+        try:
+            config = PipelineConfig.from_dict(self.get_pipeline_config())
+            config.save(Path(path))
+            self._append_log(f"> Configuração salva: {path}")
+        except Exception as exc:
+            self._append_log(f"> Falha ao salvar configuração: {exc}")
+
+    def _append_log(self, message: str) -> None:
+        self.view.txt_log.append(str(message))
+
+    def _set_running_state(self, running: bool) -> None:
+        self.view.btn_executar.setEnabled(not running)
+        self.view.btn_load_cfg.setEnabled(not running)
+        self.view.btn_save_cfg.setEnabled(not running)
+        if running:
+            self.view.badge_status.setText("EXECUTANDO")
+            self.view.badge_status.setStyleSheet(
+                "QLabel {"
+                f"  background-color: {DarkCharcoalStyle.WARNING};"
+                f"  color: {DarkCharcoalStyle.DARK_BG};"
+                "  border-radius: 6px;"
+                "  padding: 4px 14px;"
+                "  font-weight: 700;"
+                "  font-size: 11px;"
+                "}"
+            )
+        else:
+            self.view.badge_status.setText("PRONTA")
+            self.view.badge_status.setStyleSheet(
+                "QLabel {"
+                f"  background-color: {DarkCharcoalStyle.SUCCESS};"
+                f"  color: {DarkCharcoalStyle.DARK_BG};"
+                "  border-radius: 6px;"
+                "  padding: 4px 14px;"
+                "  font-weight: 700;"
+                "  font-size: 11px;"
+                "}"
+            )
+
+    def _on_progress_update(self, percent: int, message: str) -> None:
+        self.view.progress.setValue(min(max(percent, 0), 100))
+        self.view.progress.setFormat(f" {percent}% — {message} ")
+
+    def _on_pipeline_finished(self, message: str) -> None:
+        self._append_log(f"> {message}")
+        self._set_running_state(False)
+        self.view.progress.setValue(100)
+        self.view.progress.setFormat(" 100% — concluído ")
+
+    def _on_pipeline_error(self, message: str) -> None:
+        self._append_log(f"> ERRO: {message}")
+        self._set_running_state(False)
+        self.view.badge_status.setText("ERRO")
         self.view.badge_status.setStyleSheet(
             "QLabel {"
-            f"  background-color: {DarkCharcoalStyle.WARNING};"
+            f"  background-color: {DarkCharcoalStyle.DANGER};"
             f"  color: {DarkCharcoalStyle.DARK_BG};"
             "  border-radius: 6px;"
             "  padding: 4px 14px;"
@@ -155,19 +276,26 @@ class MainController:
             "}"
         )
 
-    def _on_load_cfg(self):
-        path, _ = QFileDialog.getOpenFileName(
-            self.view, "Carregar Configuracao", "", "JSON (*.json)"
-        )
-        if path:
-            self.view.txt_log.append(f"> Config carregada: {path}  [STUB]")
-
-    def _on_save_cfg(self):
-        path, _ = QFileDialog.getSaveFileName(
-            self.view, "Salvar Configuracao", "config_ui.json", "JSON (*.json)"
-        )
-        if path:
-            self.view.txt_log.append(f"> Config salva: {path}  [STUB]")
+    def _populate_fields(self, config: PipelineConfig) -> None:
+        self.view.row_img_treino.edit.setText(str(config.training_image))
+        self.view.row_img_classif.edit.setText(str(config.classification_image))
+        self.view.row_img_saida.edit.setText(str(config.output_path))
+        self.view.edit_camadas.setText(", ".join(str(layer) for layer in config.hidden_layers))
+        self.view.combo_ativacao.setCurrentText(config.activation)
+        self.view.spin_dropout.setValue(config.dropout_rate)
+        self.view.spin_epochs.setValue(config.epochs)
+        self.view.spin_batch_train.setValue(config.batch_size_train)
+        self.view.spin_batch_pred.setValue(config.batch_size_pred)
+        self.view.spin_test_size.setValue(config.test_size)
+        self.view.spin_random.setValue(config.random_state)
+        self.view.spin_ram.setValue(config.ram_limit_pct)
+        self.view.chk_mascara.setChecked(config.use_mask)
+        self.view.spin_alpha.setValue(config.alpha_threshold)
+        self.view.chk_salvar_modelo.setChecked(config.save_model)
+        self.view.row_modelo_path.edit.setText(str(config.model_path))
+        self.view.combo_model_action.setCurrentText(config.model_action)
+        self.view.row_modelo_existente.edit.setText(str(config.existing_model_path or ""))
+        self._on_model_action_changed()
 
     def get_shapefile_entries(self):
         entries = []
@@ -201,7 +329,17 @@ class MainController:
             "model_action": self.get_model_action(),
             "save_model": self.view.chk_salvar_modelo.isChecked(),
             "model_path": self.view.row_modelo_path.path(),
+            "existing_model_path": self.view.row_modelo_existente.path() if self.view.row_modelo_existente.isVisible() else None,
+            "test_size": self.view.spin_test_size.value(),
+            "random_state": self.view.spin_random.value(),
+            "epochs": self.view.spin_epochs.value(),
+            "batch_size_train": self.view.spin_batch_train.value(),
+            "batch_size_pred": self.view.spin_batch_pred.value(),
+            "hidden_layers": self.view.edit_camadas.text(),
+            "activation": self.view.combo_ativacao.currentText(),
+            "dropout_rate": self.view.spin_dropout.value(),
+            "use_mask": self.view.chk_mascara.isChecked(),
+            "alpha_threshold": self.view.spin_alpha.value(),
+            "ram_limit_pct": self.view.spin_ram.value(),
         }
-        if self.view.combo_model_action.currentText() in ["Treinar modelo existente", "Usar modelo existente"]:
-            config["existing_model_path"] = self.view.row_modelo_existente.path()
         return config
