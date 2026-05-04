@@ -300,6 +300,9 @@ class MainController:
         self.view.btn_load_cfg.setEnabled(not running)
         self.view.btn_save_cfg.setEnabled(not running)
         if running:
+            if hasattr(self.view, "loader_overlay"):
+                self.view.loader_overlay.set_progress(0, "Iniciando pipeline...")
+                self.view.loader_overlay.show_loader()
             self.view.badge_status.setText("EXECUTANDO")
             self.view.badge_status.setStyleSheet(
                 "QLabel {"
@@ -312,6 +315,8 @@ class MainController:
                 "}"
             )
         else:
+            if hasattr(self.view, "loader_overlay"):
+                self.view.loader_overlay.hide_loader()
             self.view.badge_status.setText("PRONTA")
             self.view.badge_status.setStyleSheet(
                 "QLabel {"
@@ -327,16 +332,23 @@ class MainController:
     def _on_progress_update(self, percent: int, message: str) -> None:
         self.view.progress.setValue(min(max(percent, 0), 100))
         self.view.progress.setFormat(f" {percent}% - {message} ")
+        if hasattr(self.view, "loader_overlay"):
+            self.view.loader_overlay.set_progress(percent, message)
 
     def _on_pipeline_finished(self, message: str) -> None:
         self._append_log(f"> {message}")
         self._set_running_state(False)
         self.view.progress.setValue(100)
         self.view.progress.setFormat(" 100% - concluido ")
+        if hasattr(self.view, "loader_overlay"):
+            self.view.loader_overlay.set_progress(100, "Concluido")
+            self.view.loader_overlay.hide_loader()
 
     def _on_pipeline_error(self, message: str) -> None:
         self._append_log(f"> ERRO: {message}")
         self._set_running_state(False)
+        if hasattr(self.view, "loader_overlay"):
+            self.view.loader_overlay.hide_loader()
         self.view.badge_status.setText("ERRO")
         self.view.badge_status.setStyleSheet(
             "QLabel {"

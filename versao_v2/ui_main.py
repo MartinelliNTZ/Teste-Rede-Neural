@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 from core.dark_charcoal_style import DarkCharcoalStyle
+from core.hud_loader import HudCircularRingsLoader
 from core.main_controller import MainController
 
 
@@ -474,6 +475,8 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(splitter, 1)
 
         self.controller = MainController(self)
+        self.loader_overlay = HudCircularRingsLoader(self)
+        self.loader_overlay.setGeometry(self.rect())
 
     def _add_shp_row(self, path: str, classe: int):
         row = self.table_shp.rowCount()
@@ -505,6 +508,11 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
                 btn.clicked.connect(lambda _, nr=r: self._remove_shp_row(nr))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, "loader_overlay"):
+            self.loader_overlay.setGeometry(self.rect())
 
 
 # ═══════════════════════════════════════════════════════════════════════════
