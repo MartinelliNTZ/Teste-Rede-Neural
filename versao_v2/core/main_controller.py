@@ -17,7 +17,7 @@ from pathlib import Path
 from datetime import datetime, timedelta
 from time import perf_counter
 
-from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtCore import Qt, QThread, Signal, QTimer
 from PySide6.QtWidgets import QTableWidgetItem, QLineEdit, QSpinBox, QPushButton, QFileDialog, QInputDialog, QMessageBox
 
 from core.Preferences import Preferences
@@ -65,6 +65,11 @@ class MainController:
         self._run_started_at = None
         self._run_metrics = {}
         self._eta_target = None
+        self._run_estimated_seconds = 0.0
+        self._last_progress_message = "Iniciando pipeline..."
+        self._progress_timer = QTimer()
+        self._progress_timer.setInterval(500)
+        self._progress_timer.timeout.connect(self._refresh_time_based_progress)
 
         self._connect_signals()
         self._init_defaults()
@@ -262,6 +267,7 @@ class MainController:
         self.savepreferences()
         self._prepare_run_metrics(config)
         self._log_eta_estimado()
+        self._last_progress_message = "Iniciando pipeline..."
         self._append_log("> Pipeline iniciado")
         self._set_running_state(True)
         self.worker = PipelineWorker(config)
@@ -306,6 +312,8 @@ class MainController:
         self.view.btn_load_cfg.setEnabled(not running)
         self.view.btn_save_cfg.setEnabled(not running)
         if running:
+            if not self._progress_timer.isActive():
+                self._progress_timer.start()
             if hasattr(self.view, "loader_overlay"):
                 self.view.loader_overlay.set_progress(0, self._format_progress_message("Iniciando pipeline..."))
                 self.view.loader_overlay.show_loader()
@@ -321,6 +329,8 @@ class MainController:
                 "}"
             )
         else:
+            if self._progress_timer.isActive():
+                self._progress_timer.stop()
             if hasattr(self.view, "loader_overlay"):
                 self.view.loader_overlay.hide_loader()
             self.view.badge_status.setText("PRONTA")
@@ -336,11 +346,16 @@ class MainController:
             )
 
     def _on_progress_update(self, percent: int, message: str) -> None:
-        self.view.progress.setValue(min(max(percent, 0), 100))
-        display_message = self._format_progress_message(message)
-        self.view.progress.setFormat(f" {percent}% - {display_message} ")
+        self._last_progress_message = message or self._last_progress_message
+        self._refresh_time_based_progress()
+
+    def _refresh_time_based_progress(self) -> None:
+        display_percent = self._time_based_progress_percent(self.view.progress.value())
+        display_message = self._format_progress_message(self._last_progress_message)
+        self.view.progress.setValue(display_percent)
+        self.view.progress.setFormat(f" {display_percent}% - {display_message} ")
         if hasattr(self.view, "loader_overlay"):
-            self.view.loader_overlay.set_progress(percent, display_message)
+            self.view.loader_overlay.set_progress(display_percent, display_message)
 
     def _on_pipeline_finished(self, message: str) -> None:
         self._finalize_run_metrics(success=True)
@@ -457,9 +472,13 @@ class MainController:
     def _prepare_run_metrics(self, config: PipelineConfig) -> None:
         train_pixels, train_gb = self._get_raster_pixels_and_gb(config.training_image)
         class_pixels, class_gb = self._get_raster_pixels_and_gb(config.classification_image)
+        if config.model_action == "Usar modelo existente":
+            train_pixels = 0.0
+            train_gb = 0.0
         train_rate = self._avg_px_per_sec("train")
         class_rate = self._avg_px_per_sec("class")
         est_seconds = (train_pixels / train_rate) + (class_pixels / class_rate)
+        self._run_estimated_seconds = max(est_seconds, 1.0)
         self._eta_target = datetime.now() + timedelta(seconds=max(est_seconds, 0.0))
         self._run_started_at = perf_counter()
         self._run_metrics = {
@@ -491,11 +510,19 @@ class MainController:
             return message
         return f"{message} | ETA: {self._eta_target.strftime('%H:%M:%S')}"
 
+    def _time_based_progress_percent(self, fallback_percent: int) -> int:
+        if self._run_started_at is None or self._run_estimated_seconds <= 0:
+            return min(max(fallback_percent, 0), 100)
+        elapsed = max(perf_counter() - self._run_started_at, 0.0)
+        progress = int((elapsed / self._run_estimated_seconds) * 100.0)
+        return min(max(progress, 0), 100)
+
     def _finalize_run_metrics(self, success: bool) -> None:
         if not success or self._run_started_at is None:
             self._run_started_at = None
             self._run_metrics = {}
             self._eta_target = None
+            self._run_estimated_seconds = 0.0
             return
 
         elapsed = max(perf_counter() - self._run_started_at, 0.0)
@@ -525,6 +552,7 @@ class MainController:
         self._run_started_at = None
         self._run_metrics = {}
         self._eta_target = None
+        self._run_estimated_seconds = 0.0
 
     def get_shapefile_entries(self):
         entries = []
