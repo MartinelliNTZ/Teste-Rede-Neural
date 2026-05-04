@@ -1,0 +1,243 @@
+{
+  "generated_at": "2026-05-04T16:00:25.155512",
+  "model_action": "Treinar modelo novo",
+  "saved_model_path": "models\\2026-MAIO\\modelo_ui_20260504_160015.keras",
+  "used_existing_model_path": "models\\2026-MAIO\\modelo_ui_20260504_135215.keras",
+  "config": {
+    "training_image": "dados\\imagemTreino.tif",
+    "classification_image": "dados\\imagemTreino.tif",
+    "output": "resultado\\mapa_classificado_ui99.tif",
+    "shapefiles": [
+      {
+        "path": "dados\\solo.shp",
+        "class_id": 0,
+        "legend": "Solo"
+      },
+      {
+        "path": "dados\\floresta.shp",
+        "class_id": 1,
+        "legend": "Floresta"
+      },
+      {
+        "path": "dados\\palhada.shp",
+        "class_id": 2,
+        "legend": "Palhada"
+      },
+      {
+        "path": "dados\\daninhas.shp",
+        "class_id": 3,
+        "legend": "Daninhas"
+      }
+    ],
+    "model_action": "Treinar modelo novo",
+    "save_model": true,
+    "model_path": "resultado\\modelo_ui.keras",
+    "existing_model_path": "models\\2026-MAIO\\modelo_ui_20260504_135215.keras",
+    "test_size": 0.24,
+    "random_state": 42,
+    "epochs": 160,
+    "batch_size_train": 64,
+    "batch_size_pred": 4096,
+    "hidden_layers": [
+      128,
+      64,
+      32
+    ],
+    "activation": "relu",
+    "dropout_rate": 0.1,
+    "use_mask": true,
+    "alpha_threshold": 250,
+    "ram_limit_pct": 70
+  },
+  "hardware": {
+    "device": "CPU",
+    "ram_limit_gb": 133.8463451385498,
+    "ram_limit_bytes": 143716418764
+  },
+  "features": {
+    "bands_used": 3,
+    "class_names": [
+      "Solo",
+      "Floresta",
+      "Palhada",
+      "Daninhas"
+    ]
+  },
+  "raster_training": {
+    "path": "dados\\imagemTreino.tif",
+    "width": 18775,
+    "height": 13014,
+    "bands": 4,
+    "dtype": [
+      "uint8",
+      "uint8",
+      "uint8",
+      "uint8"
+    ],
+    "crs": "EPSG:31983",
+    "nodata": null,
+    "bounds": [
+      192718.0341,
+      8736633.1082,
+      193863.6452,
+      8737427.1952
+    ],
+    "transform": [
+      0.061017901464714204,
+      0.0,
+      192718.0341,
+      0.0,
+      -0.06101790379586286,
+      8737427.1952
+    ],
+    "meta": {
+      "driver": "GTiff",
+      "dtype": "uint8",
+      "nodata": null,
+      "width": 18775,
+      "height": 13014,
+      "count": 4,
+      "crs": "EPSG:31983",
+      "transform": [
+        0.061017901464714204,
+        0.0,
+        192718.0341,
+        0.0,
+        -0.06101790379586286,
+        8737427.1952,
+        0.0,
+        0.0,
+        1.0
+      ]
+    }
+  },
+  "raster_classification": {
+    "path": "dados\\imagemTreino.tif",
+    "width": 18775,
+    "height": 13014,
+    "bands": 4,
+    "dtype": [
+      "uint8",
+      "uint8",
+      "uint8",
+      "uint8"
+    ],
+    "crs": "EPSG:31983",
+    "nodata": null,
+    "bounds": [
+      192718.0341,
+      8736633.1082,
+      193863.6452,
+      8737427.1952
+    ],
+    "transform": [
+      0.061017901464714204,
+      0.0,
+      192718.0341,
+      0.0,
+      -0.06101790379586286,
+      8737427.1952
+    ],
+    "meta": {
+      "driver": "GTiff",
+      "dtype": "uint8",
+      "nodata": null,
+      "width": 18775,
+      "height": 13014,
+      "count": 4,
+      "crs": "EPSG:31983",
+      "transform": [
+        0.061017901464714204,
+        0.0,
+        192718.0341,
+        0.0,
+        -0.06101790379586286,
+        8737427.1952,
+        0.0,
+        0.0,
+        1.0
+      ]
+    }
+  },
+  "shapefiles": [
+    {
+      "path": "dados\\solo.shp",
+      "class_id": 0,
+      "legend": "Solo",
+      "features": 275,
+      "crs": "EPSG:31983",
+      "geometry_types": [
+        "Point"
+      ],
+      "columns": [
+        "FID",
+        "geometry"
+      ],
+      "bounds": [
+        192786.30272302096,
+        8736664.218535205,
+        193742.82642329502,
+        8737416.00154362
+      ]
+    },
+    {
+      "path": "dados\\floresta.shp",
+      "class_id": 1,
+      "legend": "Floresta",
+      "features": 259,
+      "crs": "EPSG:31983",
+      "geometry_types": [
+        "Point"
+      ],
+      "columns": [
+        "FID",
+        "geometry"
+      ],
+      "bounds": [
+        192896.30488807528,
+        8736680.337268027,
+        193835.73933176708,
+        8737373.056171639
+      ]
+    },
+    {
+      "path": "dados\\palhada.shp",
+      "class_id": 2,
+      "legend": "Palhada",
+      "features": 64,
+      "crs": "EPSG:31983",
+      "geometry_types": [
+        "Point"
+      ],
+      "columns": [
+        "FID",
+        "geometry"
+      ],
+      "bounds": [
+        192845.8056556569,
+        8736692.87060509,
+        193439.04868637334,
+        8737363.674671838
+      ]
+    },
+    {
+      "path": "dados\\daninhas.shp",
+      "class_id": 3,
+      "legend": "Daninhas",
+      "features": 181,
+      "crs": "EPSG:31983",
+      "geometry_types": [
+        "Point"
+      ],
+      "columns": [
+        "geometry"
+      ],
+      "bounds": [
+        192748.05330478505,
+        8736699.622720145,
+        193698.54334526596,
+        8737542.322171872
+      ]
+    }
+  ]
+}

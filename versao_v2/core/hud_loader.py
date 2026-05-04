@@ -65,7 +65,7 @@ class HudCircularRingsLoader(QWidget):
             self._draw_ring(p, center, ring)
 
         p.setPen(QColor(DarkCharcoalStyle.ACCENT_GOLD))
-        p.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
+        p.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
         p.drawText(QRectF(cx - 120, cy + 110, 240, 24), Qt.AlignmentFlag.AlignCenter, self.message)
 
         p.setPen(QColor(DarkCharcoalStyle.ACCENT_GOLD))
