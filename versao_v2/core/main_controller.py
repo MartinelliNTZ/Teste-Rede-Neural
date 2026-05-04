@@ -14,9 +14,10 @@ os.environ["TF_CPP_MAX_LOG_LEVEL"] = "3"
 
 import warnings
 from pathlib import Path
+from datetime import datetime
 
 from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtWidgets import QTableWidgetItem, QLineEdit, QSpinBox, QPushButton, QFileDialog
+from PySide6.QtWidgets import QTableWidgetItem, QLineEdit, QSpinBox, QPushButton, QFileDialog, QInputDialog, QMessageBox
 
 from core.Preferences import Preferences
 from core.dark_charcoal_style import DarkCharcoalStyle
@@ -71,6 +72,7 @@ class MainController:
         self.view.btn_save_cfg.clicked.connect(self._on_save_cfg)
         self.view.btn_add_shp.clicked.connect(self._on_add_shp)
         self.view.combo_model_action.currentTextChanged.connect(self._on_model_action_changed)
+        self.view.btn_listar_modelos.clicked.connect(self._on_listar_modelos)
 
         widgets_bind = [
             self.view.row_img_treino.edit,
@@ -174,7 +176,41 @@ class MainController:
         action = self.view.combo_model_action.currentText()
         show_existing = action in ["Treinar modelo existente", "Usar modelo existente"]
         self.view.row_modelo_existente.setVisible(show_existing)
+        self.view.btn_listar_modelos.setVisible(show_existing)
         self._update_resumo()
+
+    def _on_listar_modelos(self):
+        model_root = Path("models")
+        if not model_root.exists():
+            QMessageBox.information(self.view, "Modelos", "Pasta 'models' nao encontrada.")
+            return
+
+        model_files = [p for p in model_root.rglob("*.keras") if p.is_file()]
+        if not model_files:
+            QMessageBox.information(self.view, "Modelos", "Nenhum modelo .keras encontrado em 'models'.")
+            return
+
+        model_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+        options = []
+        for p in model_files:
+            modified_at = datetime.fromtimestamp(p.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+            options.append(f"{p} | modificado: {modified_at}")
+
+        selected, ok = QInputDialog.getItem(
+            self.view,
+            "Selecionar Modelo",
+            "Modelos (mais recentes primeiro):",
+            options,
+            0,
+            False,
+        )
+        if not ok or not selected:
+            return
+
+        selected_path = selected.split(" | modificado: ")[0]
+        self.view.row_modelo_existente.edit.setText(selected_path)
+        self._append_log(f"> Modelo selecionado: {selected_path}")
+        self.savepreferences()
 
     def _update_resumo(self):
         treino = self.view.row_img_treino.path() or "-"

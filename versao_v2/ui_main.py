@@ -365,6 +365,12 @@ class MainWindow(QMainWindow):
         )
         self.row_modelo_existente.setVisible(False)
         lay_modelo.addWidget(self.row_modelo_existente)
+        
+        self.btn_listar_modelos = QPushButton("Listar Modelos")
+        self.btn_listar_modelos.setObjectName("btn_secondary")
+        self.btn_listar_modelos.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_listar_modelos.setVisible(False)
+        lay_modelo.addWidget(self.btn_listar_modelos, alignment=Qt.AlignmentFlag.AlignLeft)
 
         self.chk_salvar_modelo = QCheckBox("Salvar modelo treinado em disco (.keras)")
         self.chk_salvar_modelo.setChecked(True)
