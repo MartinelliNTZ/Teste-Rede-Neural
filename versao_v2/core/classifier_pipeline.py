@@ -261,10 +261,6 @@ class ClassifierPipeline:
     {_img_tag(evaluation.confusion_matrix_path, "Matriz de Confusao")}
     {_img_tag(evaluation.plot_loss_path, "Curvas de Loss e Accuracy")}
   </div>
-  <div class="card">
-    <h2>Observacao</h2>
-    <p class="muted">HTML do report fica em /report e os arquivos desta execucao ficam na pasta com mesmo nome do report.</p>
-  </div>
 </body>
 </html>
 """

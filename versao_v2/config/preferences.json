@@ -7,7 +7,7 @@
     },
     {
       "path": "dados/floresta.shp",
-      "class_id": 5,
+      "class_id": 1,
       "legend": "Floresta"
     },
     {
@@ -34,15 +34,15 @@
   "batch_size_train": 64,
   "batch_size_pred": 4096,
   "hidden_layers": "128, 64, 32",
-  "activation": "relu",
+  "activation": "linear",
   "dropout_rate": 0.1,
   "use_mask": true,
   "alpha_threshold": 250,
   "ram_limit_pct": 70,
-  "train_total_pixels": 1717979755.0,
-  "train_total_gb": 6.4050503158941865,
-  "train_total_seconds": 698.0102354500559,
-  "class_total_pixels": 1717979755.0,
-  "class_total_gb": 6.4050503158941865,
-  "class_total_seconds": 698.0102354500559
+  "train_total_pixels": 1725593560.0,
+  "train_total_gb": 6.437813349068165,
+  "train_total_seconds": 704.6064006000524,
+  "class_total_pixels": 1725593560.0,
+  "class_total_gb": 6.437813349068165,
+  "class_total_seconds": 704.6064006000524
 }

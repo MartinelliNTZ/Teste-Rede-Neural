@@ -81,6 +81,7 @@ class MainController:
         self.view.btn_executar.clicked.connect(self._on_executar)
         self.view.btn_load_cfg.clicked.connect(self._on_load_cfg)
         self.view.btn_save_cfg.clicked.connect(self._on_save_cfg)
+        self.view.btn_reset_cfg.clicked.connect(self._on_reset_cfg)
         self.view.btn_add_shp.clicked.connect(self._on_add_shp)
         self.view.combo_model_action.currentTextChanged.connect(self._on_model_action_changed)
         self.view.btn_listar_modelos.clicked.connect(self._on_listar_modelos)
@@ -305,6 +306,53 @@ class MainController:
         except Exception as exc:
             self._append_log(f"> Falha ao salvar configuracao: {exc}")
 
+    def _on_reset_cfg(self):
+        if self.worker is not None and self.worker.isRunning():
+            self._append_log("> Nao e possivel restaurar padrao durante execucao")
+            return
+
+        confirm = QMessageBox.question(
+            self.view,
+            "Restaurar Padrao",
+            "Isso vai zerar o preferences.json e restaurar os valores padrao. Deseja continuar?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+
+        self._loading_preferences = True
+        self.preferences.savepreferences({})
+        self.preferences.loadpreferences()
+
+        self.view.row_img_treino.edit.setText("dados/imagemTreino.tif")
+        self.view.row_img_classif.edit.setText("dados/imagemCompleta.tif")
+        self.view.row_img_saida.edit.setText("resultado/mapa_classificado_ui.tif")
+        self.view.edit_camadas.setText("128, 64, 32")
+        self.view.combo_ativacao.setCurrentText("relu")
+        self.view.spin_dropout.setValue(0.1)
+        self.view.spin_epochs.setValue(150)
+        self.view.spin_batch_train.setValue(64)
+        self.view.spin_batch_pred.setValue(4096)
+        self.view.spin_test_size.setValue(0.30)
+        self.view.spin_random.setValue(42)
+        self.view.spin_ram.setValue(70)
+        self.view.chk_mascara.setChecked(True)
+        self.view.spin_alpha.setValue(250)
+        self.view.chk_salvar_modelo.setChecked(True)
+        self.view.row_modelo_path.edit.setText("resultado/modelo_ui.keras")
+        self.view.combo_model_action.setCurrentText("Treinar modelo novo")
+        self.view.row_modelo_existente.edit.setText("")
+
+        self.view.table_shp.setRowCount(0)
+        self._init_defaults()
+        self._on_model_action_changed()
+        self._update_resumo()
+
+        self._loading_preferences = False
+        self.savepreferences()
+        self._append_log("> Configuracoes restauradas para o padrao")
+
     def _append_log(self, message: str) -> None:
         text = str(message)
         lower = text.lower()
@@ -356,6 +404,7 @@ class MainController:
         self.view.btn_executar.setEnabled(not running)
         self.view.btn_load_cfg.setEnabled(not running)
         self.view.btn_save_cfg.setEnabled(not running)
+        self.view.btn_reset_cfg.setEnabled(not running)
         if running:
             if not self._progress_timer.isActive():
                 self._progress_timer.start()

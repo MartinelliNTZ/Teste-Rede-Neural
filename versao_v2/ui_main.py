@@ -161,8 +161,8 @@ class MainWindow(QMainWindow):
         title_col = QVBoxLayout()
         title_col.setSpacing(4)
 
-        self.lbl_title = QLabel("Classificador Raster Neural")
-        self.lbl_title.setObjectName("header_title")
+        #self.lbl_title = QLabel("Classificador Raster Neural")
+        #self.lbl_title.setObjectName("header_title")
 
         self.lbl_subtitle = QLabel(
             "Pipeline de classificacao supervisionada com redes neurais profundas "
@@ -171,7 +171,7 @@ class MainWindow(QMainWindow):
         self.lbl_subtitle.setObjectName("header_subtitle")
         self.lbl_subtitle.setWordWrap(True)
 
-        title_col.addWidget(self.lbl_title)
+       # title_col.addWidget(self.lbl_title)
         title_col.addWidget(self.lbl_subtitle)
 
         header_layout.addLayout(title_col, 1)
@@ -199,7 +199,7 @@ class MainWindow(QMainWindow):
         left_panel = QWidget()
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(0, 0, 0, 0)
-        left_layout.setSpacing(12)
+        left_layout.setSpacing(6)
 
         # Grupo: Imagens
         grp_imagens = QGroupBox("Imagens & Saida")
@@ -429,7 +429,7 @@ class MainWindow(QMainWindow):
         right_layout = QVBoxLayout(right_panel)
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setContentsMargins(0, 12, 0, 0)
-        right_layout.setSpacing(12)
+        right_layout.setSpacing(6)
 
         card_preview = QFrame()
         card_preview.setStyleSheet(
@@ -493,8 +493,13 @@ class MainWindow(QMainWindow):
         self.btn_save_cfg.setObjectName("btn_secondary")
         self.btn_save_cfg.setCursor(Qt.CursorShape.PointingHandCursor)
 
+        self.btn_reset_cfg = QPushButton("Restaurar Padrao")
+        self.btn_reset_cfg.setObjectName("btn_secondary")
+        self.btn_reset_cfg.setCursor(Qt.CursorShape.PointingHandCursor)
+
         action_lay.addWidget(self.btn_load_cfg)
         action_lay.addWidget(self.btn_save_cfg)
+        action_lay.addWidget(self.btn_reset_cfg)
         action_lay.addStretch()
 
         self.btn_executar = QPushButton("EXECUTAR PIPELINE")
