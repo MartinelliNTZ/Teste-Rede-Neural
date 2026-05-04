@@ -1,10 +1,8 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import math
-import os
-from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, Optional
 
 import numpy as np
 import psutil
@@ -12,14 +10,6 @@ import rasterio
 from rasterio.windows import Window
 
 from .hardware_manager import calculate_chunk_lines
-
-
-def _read_chunk(args: Tuple[str, int, int, int]):
-    path_src, row_start, width, n_rows = args
-    with rasterio.open(path_src) as src:
-        window = Window(0, row_start, width, n_rows)
-        data = src.read(window=window)
-    return row_start, n_rows, data
 
 
 class RasterPredictor:
@@ -50,7 +40,7 @@ class RasterPredictor:
     ) -> Path:
         source_path = Path(source_path)
         output_path = Path(output_path)
-        self._validate_paths(source_path)
+        self._validate_paths(source_path, output_path)
 
         with rasterio.open(str(source_path)) as src:
             height = src.height
@@ -88,18 +78,18 @@ class RasterPredictor:
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         pixels_ok = 0
-        total_pixels = height * width
+        predicted_pixels = 0
         tasks = []
         for i in range(num_chunks):
             row_start = i * chunk_lines
             row_end = min(row_start + chunk_lines, height)
-            tasks.append((str(source_path), row_start, width, row_end - row_start))
+            tasks.append((row_start, row_end - row_start))
 
         with rasterio.open(str(output_path), "w", **out_meta) as dst:
-            with ProcessPoolExecutor(max_workers=os.cpu_count()) as executor:
-                for chunk_index, result in enumerate(executor.map(_read_chunk, tasks)):
-                    row_start, n_rows, chunk_data = result
+            with rasterio.open(str(source_path)) as src:
+                for chunk_index, (row_start, n_rows) in enumerate(tasks):
                     window = Window(0, row_start, width, n_rows)
+                    chunk_data = src.read(window=window)
 
                     if self.use_mask and n_bands_total > n_bands_feature:
                         mask_band = chunk_data[-1]
@@ -122,20 +112,33 @@ class RasterPredictor:
                         else:
                             pred_cls = np.argmax(pred_raw, axis=1).astype(np.uint8)
                         result_arr[valid_mask] = pred_cls
+                        predicted_pixels += int(pred_cls.size)
 
                     dst.write(result_arr.reshape(1, n_rows, width), window=window)
                     pixels_ok += num_valid
                     percent = int((chunk_index + 1) / num_chunks * 100)
                     self._report_progress(percent, f"Chunk {chunk_index + 1}/{num_chunks}")
 
+        if pixels_ok == 0 or predicted_pixels == 0:
+            try:
+                output_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+            raise ValueError(
+                "Nenhum pixel valido foi classificado. Saida resultaria em raster vazio/nodata. "
+                "Verifique mascara/alpha ou desative 'Usar mascara'."
+            )
+
         with rasterio.open(str(output_path), "r+") as dst:
             overviews = [2, 4, 8, 16, 32, 64]
             dst.build_overviews(overviews, rasterio.enums.Resampling.nearest)
             dst.update_tags(ns="rio_overview", resampling="nearest")
 
-        self._report_progress(100, "Predição concluída")
+        self._report_progress(100, "Predicao concluida")
         return output_path
 
-    def _validate_paths(self, source_path: Path) -> None:
+    def _validate_paths(self, source_path: Path, output_path: Path) -> None:
         if not source_path.is_file():
-            raise FileNotFoundError(f"Imagem de classificação não encontrada: {source_path}")
+            raise FileNotFoundError(f"Imagem de classificacao nao encontrada: {source_path}")
+        if source_path.resolve() == output_path.resolve():
+            raise ValueError("Imagem de saida nao pode ser igual a imagem de classificacao.")
