@@ -65,16 +65,18 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
 QGroupBox {{
     background-color: {c.PANEL_BG};
     border: 1px solid {c.BORDER};
-    border-radius: 10px;
-    margin-top: 14px;
-    padding: 2px;
+    border-radius: 12px;
+    margin-top: 6px;
+    padding: 14px 10px 10px 10px;
     font-weight: 600;
     font-size: 13px;
     color: {c.TEXT_PRIMARY};
 }}
 QGroupBox::title {{
-    subcontrol-origin: margin;
-    left: 14px;
+    subcontrol-origin: padding;
+    subcontrol-position: top left;
+    left: 2px;
+    top: 2px;
     padding: 0 2px;
     color: {c.ACCENT_GOLD};
     font-weight: 700;
@@ -136,7 +138,7 @@ QLineEdit {{
     background-color: {c.INPUT_BG};
     border: 1px solid {c.BORDER};
     border-radius: 6px;
-    padding: 2px 2px;
+    padding: 4px 7px;
     color: {c.TEXT_PRIMARY};
     selection-background-color: {c.ACCENT_GOLD};
     selection-color: {c.DARK_BG};
@@ -149,7 +151,7 @@ QSpinBox, QDoubleSpinBox {{
     background-color: {c.INPUT_BG};
     border: 1px solid {c.BORDER};
     border-radius: 6px;
-    padding: 2px 2px;
+    padding: 3px 7px;
     color: {c.TEXT_PRIMARY};
 }}
 QSpinBox:focus, QDoubleSpinBox:focus {{
@@ -171,7 +173,7 @@ QComboBox {{
     background-color: {c.INPUT_BG};
     border: 1px solid {c.BORDER};
     border-radius: 6px;
-    padding: 2px 2px;
+    padding: 3px 7px;
     color: {c.TEXT_PRIMARY};
     min-width: 100px;
 }}
@@ -261,7 +263,7 @@ QTextEdit {{
     color: {c.TEXT_SECONDARY};
     font-family: 'Consolas', 'Monaco', monospace;
     font-size: 12px;
-    padding: 2px;
+    padding: 10px;
 }}
 
 QProgressBar {{

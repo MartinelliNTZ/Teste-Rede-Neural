@@ -149,14 +149,14 @@ class MainWindow(QMainWindow):
         root_layout.addWidget(scroll, 1)
 
         main_layout = QVBoxLayout(central)
-        main_layout.setContentsMargins(28, 24, 28, 24)
-        main_layout.setSpacing(20)
+        main_layout.setContentsMargins(22, 16, 22, 16)
+        main_layout.setSpacing(14)
 
         # HEADER PREMIUM
         header = QWidget()
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(0, 0, 0, 0)
-        header_layout.setSpacing(16)
+        header_layout.setSpacing(12)
 
         title_col = QVBoxLayout()
         title_col.setSpacing(4)
@@ -199,12 +199,12 @@ class MainWindow(QMainWindow):
         left_panel = QWidget()
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(0, 0, 0, 0)
-        left_layout.setSpacing(18)
+        left_layout.setSpacing(12)
 
         # Grupo: Imagens
         grp_imagens = QGroupBox("Imagens & Saida")
         lay_img = QVBoxLayout(grp_imagens)
-        lay_img.setSpacing(10)
+        lay_img.setSpacing(8)
 
         self.row_img_treino = PathBrowseRow(
             "Imagem Treino", "dados/imagemTreino.tif",
@@ -228,7 +228,7 @@ class MainWindow(QMainWindow):
         # Grupo: Amostras
         grp_amostras = QGroupBox("Amostras — Shapefiles por Classe")
         lay_amostras = QVBoxLayout(grp_amostras)
-        lay_amostras.setSpacing(10)
+        lay_amostras.setSpacing(8)
 
         self.table_shp = QTableWidget(0, 4)
         self.table_shp.setHorizontalHeaderLabels(
@@ -264,10 +264,10 @@ class MainWindow(QMainWindow):
         # Grupo: Arquitetura da Rede
         grp_rede = QGroupBox("Arquitetura da Rede Neural")
         lay_rede = QVBoxLayout(grp_rede)
-        lay_rede.setSpacing(10)
+        lay_rede.setSpacing(8)
 
         row_camadas = QHBoxLayout()
-        row_camadas.setSpacing(12)
+        row_camadas.setSpacing(10)
         row_camadas.addWidget(QLabel("Camadas Ocultas:"))
         self.edit_camadas = QLineEdit("128, 64, 32")
         self.edit_camadas.setPlaceholderText("ex: 256, 128, 64")
@@ -282,7 +282,7 @@ class MainWindow(QMainWindow):
         lay_rede.addLayout(row_camadas)
 
         row_dropout = QHBoxLayout()
-        row_dropout.setSpacing(12)
+        row_dropout.setSpacing(10)
         row_dropout.addWidget(QLabel("Dropout:"))
         self.spin_dropout = QDoubleSpinBox()
         self.spin_dropout.setRange(0.0, 0.9)
@@ -298,10 +298,10 @@ class MainWindow(QMainWindow):
         # Grupo: Treinamento
         grp_treino = QGroupBox("Hiperparametros de Treinamento")
         lay_treino = QVBoxLayout(grp_treino)
-        lay_treino.setSpacing(10)
+        lay_treino.setSpacing(8)
 
         grid_treino = QHBoxLayout()
-        grid_treino.setSpacing(18)
+        grid_treino.setSpacing(12)
 
         col = QVBoxLayout()
         col.addWidget(QLabel("Epocas"))
@@ -351,10 +351,10 @@ class MainWindow(QMainWindow):
         # Grupo: Hardware & Mascara
         grp_hw = QGroupBox("Hardware & Pre-processamento")
         lay_hw = QVBoxLayout(grp_hw)
-        lay_hw.setSpacing(10)
+        lay_hw.setSpacing(8)
 
         row_hw1 = QHBoxLayout()
-        row_hw1.setSpacing(16)
+        row_hw1.setSpacing(12)
 
         col = QVBoxLayout()
         col.addWidget(QLabel("Limite RAM (%)"))
@@ -383,10 +383,10 @@ class MainWindow(QMainWindow):
         # Grupo: Persistencia
         grp_modelo = QGroupBox("Persistencia do Modelo")
         lay_modelo = QVBoxLayout(grp_modelo)
-        lay_modelo.setSpacing(10)
+        lay_modelo.setSpacing(8)
 
         row_model_action = QHBoxLayout()
-        row_model_action.setSpacing(12)
+        row_model_action.setSpacing(10)
         row_model_action.addWidget(QLabel("Acao do Modelo:"))
         self.combo_model_action = QComboBox()
         self.combo_model_action.addItems([
@@ -428,7 +428,8 @@ class MainWindow(QMainWindow):
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
         right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.setSpacing(18)
+        right_layout.setContentsMargins(0, 12, 0, 0)
+        right_layout.setSpacing(12)
 
         card_preview = QFrame()
         card_preview.setStyleSheet(
@@ -439,8 +440,8 @@ class MainWindow(QMainWindow):
             "}"
         )
         card_lay = QVBoxLayout(card_preview)
-        card_lay.setContentsMargins(18, 18, 18, 18)
-        card_lay.setSpacing(12)
+        card_lay.setContentsMargins(12, 12, 12, 12)
+        card_lay.setSpacing(8)
 
         prev_title = QLabel("Resumo da Configuracao")
         prev_title.setStyleSheet(
@@ -482,7 +483,7 @@ class MainWindow(QMainWindow):
         action_bar = QWidget()
         action_lay = QHBoxLayout(action_bar)
         action_lay.setContentsMargins(0, 0, 0, 0)
-        action_lay.setSpacing(10)
+        action_lay.setSpacing(8)
 
         self.btn_load_cfg = QPushButton("Carregar Config")
         self.btn_load_cfg.setObjectName("btn_secondary")

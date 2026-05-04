@@ -199,4 +199,4 @@ config = SemanticSegmentationConfig(
 if __name__ == "__main__":
     from rastervision.pipeline.runner import LocalRunner
     runner = LocalRunner()
-    runner.run(config, pipeline_run_config=None, stages=["train"])
+    runner.run(config, stages=["train"])
