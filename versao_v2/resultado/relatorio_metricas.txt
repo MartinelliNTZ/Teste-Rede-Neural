@@ -1,14 +1,13 @@
-RELATORIO DE METRICAS
+RELATORIO DE METRICAS — Classificador Raster v5
 ============================================================
 
-Acuracia global: 0.8396 (83.96%)
+Imagem de treino       : D:\teste\versao_v2\dados\imagemTreino.tif
+Imagem classificada    : D:\teste\versao_v2\dados\imagemTreino.tif
+Acuracia global        : 0.8419 (84.19%)
 
 Classe                   Precisao     Recall         F1    Suporte
 --------------------------------------------------------------
-Solo                       1.0000     0.9545     0.9767         66
-Floresta                   0.8571     0.6774     0.7568         62
-Palhada                    0.7895     1.0000     0.8824         15
-Daninhas                   0.6607     0.8409     0.7400         44
-
-macro avg                  0.8268     0.8682     0.8390
-weighted avg               0.8559     0.8396     0.8405
+solo                       0.9762     0.9880     0.9820         83
+floresta                   0.8143     0.7308     0.7703         78
+palhada                    0.8947     0.8947     0.8947         19
+daninhas                   0.6721     0.7593     0.7130         54

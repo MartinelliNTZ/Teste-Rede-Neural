@@ -7,7 +7,7 @@
     },
     {
       "path": "dados/floresta.shp",
-      "class_id": 1,
+      "class_id": 5,
       "legend": "Floresta"
     },
     {
@@ -22,8 +22,8 @@
     }
   ],
   "output": "resultado/mapa_classificado_ui99.tif",
-  "training_image": "dados/imagemTreino.tif",
-  "classification_image": "dados/imagemTreino.tif",
+  "training_image": "D:/teste/versao_v2/dados/imagemCompleta2.tif",
+  "classification_image": "D:/teste/versao_v2/dados/imagemCompleta2.tif",
   "model_action": "Treinar modelo novo",
   "save_model": true,
   "model_path": "resultado/modelo_ui.keras",
@@ -39,10 +39,10 @@
   "use_mask": true,
   "alpha_threshold": 250,
   "ram_limit_pct": 70,
-  "train_total_pixels": 1221690250.0,
-  "train_total_gb": 4.551633773371577,
-  "train_total_seconds": 487.35161080007674,
-  "class_total_pixels": 1221690250.0,
-  "class_total_gb": 4.551633773371577,
-  "class_total_seconds": 487.35161080007674
+  "train_total_pixels": 1717979755.0,
+  "train_total_gb": 6.4050503158941865,
+  "train_total_seconds": 698.0102354500559,
+  "class_total_pixels": 1717979755.0,
+  "class_total_gb": 6.4050503158941865,
+  "class_total_seconds": 698.0102354500559
 }

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
+import shutil
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Tuple
 
 import geopandas as gpd
 from tensorflow.keras.models import load_model
@@ -49,6 +50,8 @@ class ClassifierPipeline:
         self.class_names = []
         self._last_saved_model_path: Optional[Path] = None
         self._last_saved_info_path: Optional[Path] = None
+        self._run_started_at: Optional[datetime] = None
+        self._report_dir: Optional[Path] = None
 
     def _log(self, message: str) -> None:
         self.logger(message)
@@ -115,6 +118,157 @@ class ClassifierPipeline:
             "model": base_dir / f"{final_base_name}.keras",
             "info": base_dir / f"{final_base_name}.info.json",
         }
+
+    @staticmethod
+    def _build_report_paths(now: datetime) -> Tuple[Path, Path, str]:
+        stamp = now.strftime("%Y%m%d_%H%M%S")
+        base_name = f"report_{stamp}"
+        report_root = Path("report")
+        report_root.mkdir(parents=True, exist_ok=True)
+        html_path = report_root / f"{base_name}.html"
+        assets_dir = report_root / base_name
+        assets_dir.mkdir(parents=True, exist_ok=True)
+        return html_path, assets_dir, base_name
+
+    @staticmethod
+    def _format_seconds(total_seconds: float) -> str:
+        total = max(int(total_seconds), 0)
+        hours = total // 3600
+        minutes = (total % 3600) // 60
+        seconds = total % 60
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+    def _build_html_report(
+        self,
+        report_path: Path,
+        assets_folder_name: str,
+        evaluation: EvaluationResult,
+        output_path: Path,
+        execution_info_path: Optional[Path],
+        train_info: Dict[str, object],
+        class_info: Dict[str, object],
+        shapefiles_info: List[Dict[str, object]],
+        started_at: datetime,
+        finished_at: datetime,
+    ) -> None:
+        duration_seconds = (finished_at - started_at).total_seconds()
+        duration_hms = self._format_seconds(duration_seconds)
+        model_path = self._last_saved_model_path or self.config.existing_model_path
+
+        def _img_tag(path: Path, label: str) -> str:
+            if not path.exists():
+                return f"<p><b>{label}:</b> arquivo nao encontrado ({path.name})</p>"
+            return (
+                f"<h3>{label}</h3>"
+                f"<img src='{assets_folder_name}/{path.name}' alt='{label}' style='max-width:100%; border:1px solid #3E3E42; border-radius:8px;'/>"
+            )
+
+        class_rows = []
+        for class_name in self.class_names:
+            row = evaluation.report.get(class_name, {})
+            if not row:
+                continue
+            class_rows.append(
+                "<tr>"
+                f"<td>{class_name}</td>"
+                f"<td>{float(row.get('precision', 0.0)):.4f}</td>"
+                f"<td>{float(row.get('recall', 0.0)):.4f}</td>"
+                f"<td>{float(row.get('f1-score', 0.0)):.4f}</td>"
+                f"<td>{int(row.get('support', 0))}</td>"
+                "</tr>"
+            )
+        class_table_html = "\n".join(class_rows) if class_rows else "<tr><td colspan='5'>Sem dados</td></tr>"
+
+        train_pixels = int(train_info.get("width", 0)) * int(train_info.get("height", 0))
+        class_pixels = int(class_info.get("width", 0)) * int(class_info.get("height", 0))
+
+        shp_items = []
+        for shp in shapefiles_info:
+            shp_items.append(
+                f"<li>[Classe {shp.get('class_id')}] {shp.get('legend')} - {Path(str(shp.get('path', '-'))).name} "
+                f"({shp.get('features', 0)} feicoes)</li>"
+            )
+        shapefile_html = "".join(shp_items) if shp_items else "<li>Sem shapefiles.</li>"
+
+        html = f"""<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Report Execucao - {started_at.strftime("%Y-%m-%d %H:%M:%S")}</title>
+  <style>
+    body {{ background:#121212; color:#EAEAEA; font-family:Segoe UI, Arial, sans-serif; margin:24px; }}
+    .card {{ background:#1E1E1E; border:1px solid #3E3E42; border-radius:10px; padding:14px; margin-bottom:14px; }}
+    h1, h2, h3 {{ color:#D4A853; margin:0 0 10px 0; }}
+    p, li {{ color:#D0D0D0; }}
+    ul {{ margin:6px 0 0 18px; }}
+    .muted {{ color:#A0A0A0; }}
+    table {{ width:100%; border-collapse: collapse; }}
+    th, td {{ border:1px solid #3E3E42; padding:8px; text-align:left; font-size:13px; }}
+    th {{ background:#252526; color:#EAEAEA; }}
+  </style>
+</head>
+<body>
+  <h1>Report de Execucao</h1>
+  <div class="card">
+    <h2>Resumo</h2>
+    <p><b>Inicio:</b> {started_at.strftime("%Y-%m-%d %H:%M:%S")}</p>
+    <p><b>Fim:</b> {finished_at.strftime("%Y-%m-%d %H:%M:%S")}</p>
+    <p><b>Tempo total:</b> {duration_hms} ({duration_seconds:.2f}s)</p>
+    <p><b>Acuracia:</b> {evaluation.accuracy:.4f} ({evaluation.accuracy * 100:.2f}%)</p>
+  </div>
+  <div class="card">
+    <h2>Hardware e Pipeline</h2>
+    <p><b>Dispositivo:</b> {getattr(self.hardware_info, "device", "-")}</p>
+    <p><b>RAM limite:</b> {float(getattr(self.hardware_info, "ram_limit_gb", 0.0)):.2f} GB ({self.config.ram_limit_pct}%)</p>
+    <p><b>Acao do modelo:</b> {self.config.model_action}</p>
+    <p><b>Camadas ocultas:</b> {self.config.hidden_layers} | <b>Ativacao:</b> {self.config.activation} | <b>Dropout:</b> {self.config.dropout_rate}</p>
+    <p><b>Mascara:</b> {self.config.use_mask} (alpha >= {self.config.alpha_threshold})</p>
+  </div>
+  <div class="card">
+    <h2>Arquivos Utilizados</h2>
+    <ul>
+      <li>Imagem treino: {self.config.training_image}</li>
+      <li>Imagem classificacao: {self.config.classification_image}</li>
+      <li>Saida classificada (TIF): {output_path}</li>
+      <li>Modelo: {model_path if model_path else "Nao aplicavel"}</li>
+      <li>Info JSON: {assets_folder_name}/{Path(str(execution_info_path)).name if execution_info_path else "Nao gerado"}</li>
+      <li>Relatorio metricas TXT: {assets_folder_name}/{evaluation.report_path.name}</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h2>Validacao das Imagens</h2>
+    <p><b>Treino:</b> {Path(str(train_info.get("path", "-"))).name} | {train_info.get("width", 0)} x {train_info.get("height", 0)} px | bandas: {train_info.get("bands", 0)} | pixels: {train_pixels:,}</p>
+    <p><b>CRS treino:</b> {train_info.get("crs", "-")}</p>
+    <p><b>Classificacao:</b> {Path(str(class_info.get("path", "-"))).name} | {class_info.get("width", 0)} x {class_info.get("height", 0)} px | bandas: {class_info.get("bands", 0)} | pixels: {class_pixels:,}</p>
+    <p><b>CRS classificacao:</b> {class_info.get("crs", "-")}</p>
+  </div>
+  <div class="card">
+    <h2>Amostras por Classe</h2>
+    <ul>{shapefile_html}</ul>
+  </div>
+  <div class="card">
+    <h2>Metricas por Classe</h2>
+    <table>
+      <thead><tr><th>Classe</th><th>Precisao</th><th>Recall</th><th>F1-Score</th><th>Suporte</th></tr></thead>
+      <tbody>
+        {class_table_html}
+      </tbody>
+    </table>
+  </div>
+  <div class="card">
+    <h2>Graficos de Avaliacao</h2>
+    {_img_tag(evaluation.confusion_matrix_path, "Matriz de Confusao")}
+    {_img_tag(evaluation.plot_loss_path, "Curvas de Loss e Accuracy")}
+  </div>
+  <div class="card">
+    <h2>Observacao</h2>
+    <p class="muted">HTML do report fica em /report e os arquivos desta execucao ficam na pasta com mesmo nome do report.</p>
+  </div>
+</body>
+</html>
+"""
+        report_path.write_text(html, encoding="utf-8")
 
     def _collect_raster_info(self, raster: RasterSource) -> Dict[str, object]:
         with raster.open() as src:
@@ -234,16 +388,29 @@ class ClassifierPipeline:
 
     def execute(self) -> PipelineResult:
         self.config.validate()
+        self._run_started_at = datetime.now()
+        report_html_path, self._report_dir, report_base_name = self._build_report_paths(self._run_started_at)
         self._log("Iniciando pipeline do classificador")
 
         self.hardware_info = configure_hardware(self.config.ram_limit_pct)
         self._log(f"Hardware: {self.hardware_info.device} | RAM limite {self.hardware_info.ram_limit_gb:.2f} GB")
+        self._log(
+            f"Pipeline: treino={self.config.training_image} | classif={self.config.classification_image} | "
+            f"saida={self.config.output_path}"
+        )
         artifact_paths = self._build_artifact_paths()
 
         train_raster = RasterSource(self.config.training_image)
         class_raster = RasterSource(self.config.classification_image)
         train_raster.validate()
         class_raster.validate()
+        train_info = self._collect_raster_info(train_raster)
+        class_info = self._collect_raster_info(class_raster)
+        self._log(
+            "Validacao imagens: "
+            f"Treino {train_info['width']}x{train_info['height']} ({int(train_info['width']) * int(train_info['height']):,} px) | "
+            f"Classif {class_info['width']}x{class_info['height']} ({int(class_info['width']) * int(class_info['height']):,} px)"
+        )
 
         self._log("Carregando shapefiles de amostra")
         shapefile_dataset = ShapefileDataset(self.config.shapefiles)
@@ -306,6 +473,7 @@ class ClassifierPipeline:
         )
         self._last_saved_info_path = artifact_paths["info"]
         self._log(f"Info de execucao salva em {artifact_paths['info']}")
+        shapefiles_info = self._collect_shapefiles_info()
 
         self._log("Avaliando modelo")
         evaluation = Evaluator.evaluate(
@@ -313,7 +481,7 @@ class ClassifierPipeline:
             split.X_test,
             split.Y_test,
             class_names=self.class_names,
-            output_dir=Path("resultado"),
+            output_dir=self._report_dir,
             history=self.history,
         )
 
@@ -331,6 +499,25 @@ class ClassifierPipeline:
             n_bands_feature,
             self.config.output_path,
         )
+
+        if self._last_saved_info_path and self._last_saved_info_path.exists():
+            shutil.copy2(self._last_saved_info_path, self._report_dir / self._last_saved_info_path.name)
+
+        finished_at = datetime.now()
+        self._build_html_report(
+            report_path=report_html_path,
+            assets_folder_name=report_base_name,
+            evaluation=evaluation,
+            output_path=output_path,
+            execution_info_path=self._last_saved_info_path,
+            train_info=train_info,
+            class_info=class_info,
+            shapefiles_info=shapefiles_info,
+            started_at=self._run_started_at,
+            finished_at=finished_at,
+        )
+        self._log(f"Report HTML salvo em {report_html_path}")
+        self._log(f"Arquivos do report salvos em {self._report_dir} ({report_base_name})")
 
         self._progress(100, "Pipeline concluído")
         return PipelineResult(
