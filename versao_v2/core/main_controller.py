@@ -14,7 +14,8 @@ os.environ["TF_CPP_MAX_LOG_LEVEL"] = "3"
 
 import warnings
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
+from time import perf_counter
 
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import QTableWidgetItem, QLineEdit, QSpinBox, QPushButton, QFileDialog, QInputDialog, QMessageBox
@@ -61,6 +62,9 @@ class MainController:
         self.preferences = Preferences(Path("config") / "preferences.json")
         self.worker = None
         self._loading_preferences = False
+        self._run_started_at = None
+        self._run_metrics = {}
+        self._eta_target = None
 
         self._connect_signals()
         self._init_defaults()
@@ -256,6 +260,8 @@ class MainController:
             return
 
         self.savepreferences()
+        self._prepare_run_metrics(config)
+        self._log_eta_estimado()
         self._append_log("> Pipeline iniciado")
         self._set_running_state(True)
         self.worker = PipelineWorker(config)
@@ -301,7 +307,7 @@ class MainController:
         self.view.btn_save_cfg.setEnabled(not running)
         if running:
             if hasattr(self.view, "loader_overlay"):
-                self.view.loader_overlay.set_progress(0, "Iniciando pipeline...")
+                self.view.loader_overlay.set_progress(0, self._format_progress_message("Iniciando pipeline..."))
                 self.view.loader_overlay.show_loader()
             self.view.badge_status.setText("EXECUTANDO")
             self.view.badge_status.setStyleSheet(
@@ -331,11 +337,13 @@ class MainController:
 
     def _on_progress_update(self, percent: int, message: str) -> None:
         self.view.progress.setValue(min(max(percent, 0), 100))
-        self.view.progress.setFormat(f" {percent}% - {message} ")
+        display_message = self._format_progress_message(message)
+        self.view.progress.setFormat(f" {percent}% - {display_message} ")
         if hasattr(self.view, "loader_overlay"):
-            self.view.loader_overlay.set_progress(percent, message)
+            self.view.loader_overlay.set_progress(percent, display_message)
 
     def _on_pipeline_finished(self, message: str) -> None:
+        self._finalize_run_metrics(success=True)
         self._append_log(f"> {message}")
         self._set_running_state(False)
         self.view.progress.setValue(100)
@@ -345,6 +353,7 @@ class MainController:
             self.view.loader_overlay.hide_loader()
 
     def _on_pipeline_error(self, message: str) -> None:
+        self._finalize_run_metrics(success=False)
         self._append_log(f"> ERRO: {message}")
         self._set_running_state(False)
         if hasattr(self.view, "loader_overlay"):
@@ -426,7 +435,96 @@ class MainController:
     def savepreferences(self) -> None:
         if self._loading_preferences:
             return
-        self.preferences.savepreferences(self.get_pipeline_config())
+        data = self.preferences.to_dict()
+        data.update(self.get_pipeline_config())
+        self.preferences.savepreferences(data)
+
+    def _get_raster_pixels_and_gb(self, path: Path) -> tuple[float, float]:
+        pixels = 0.0
+        gb = 0.0
+        try:
+            from core.raster_source import RasterSource
+            raster = RasterSource(path)
+            pixels = float(raster.width * raster.height)
+        except Exception:
+            pixels = 0.0
+        try:
+            gb = float(path.stat().st_size) / (1024.0 ** 3)
+        except Exception:
+            gb = 0.0
+        return pixels, gb
+
+    def _prepare_run_metrics(self, config: PipelineConfig) -> None:
+        train_pixels, train_gb = self._get_raster_pixels_and_gb(config.training_image)
+        class_pixels, class_gb = self._get_raster_pixels_and_gb(config.classification_image)
+        train_rate = self._avg_px_per_sec("train")
+        class_rate = self._avg_px_per_sec("class")
+        est_seconds = (train_pixels / train_rate) + (class_pixels / class_rate)
+        self._eta_target = datetime.now() + timedelta(seconds=max(est_seconds, 0.0))
+        self._run_started_at = perf_counter()
+        self._run_metrics = {
+            "train_pixels": train_pixels,
+            "train_gb": train_gb,
+            "class_pixels": class_pixels,
+            "class_gb": class_gb,
+        }
+
+    def _avg_px_per_sec(self, prefix: str) -> float:
+        total_pixels = float(self.preferences.get(f"{prefix}_total_pixels", 1000.0))
+        total_seconds = float(self.preferences.get(f"{prefix}_total_seconds", 1.0))
+        if total_seconds <= 0:
+            total_seconds = 1.0
+        if total_pixels <= 0:
+            total_pixels = 1000.0
+        return total_pixels / total_seconds
+
+    def _log_eta_estimado(self) -> None:
+        train_rate = self._avg_px_per_sec("train")
+        class_rate = self._avg_px_per_sec("class")
+        self._append_log(
+            f"> ETA estimado: {self._eta_target.strftime('%H:%M:%S') if self._eta_target else '--:--:--'} | "
+            f"Treino={train_rate:.2f} px/s | Classificacao={class_rate:.2f} px/s"
+        )
+
+    def _format_progress_message(self, message: str) -> str:
+        if self._eta_target is None:
+            return message
+        return f"{message} | ETA: {self._eta_target.strftime('%H:%M:%S')}"
+
+    def _finalize_run_metrics(self, success: bool) -> None:
+        if not success or self._run_started_at is None:
+            self._run_started_at = None
+            self._run_metrics = {}
+            self._eta_target = None
+            return
+
+        elapsed = max(perf_counter() - self._run_started_at, 0.0)
+        train_pixels = float(self._run_metrics.get("train_pixels", 0.0))
+        class_pixels = float(self._run_metrics.get("class_pixels", 0.0))
+        train_gb = float(self._run_metrics.get("train_gb", 0.0))
+        class_gb = float(self._run_metrics.get("class_gb", 0.0))
+
+        train_seconds = elapsed * (train_pixels / (train_pixels + class_pixels)) if (train_pixels + class_pixels) > 0 else 0.0
+        class_seconds = max(elapsed - train_seconds, 0.0)
+
+        self.preferences.set("train_total_pixels", float(self.preferences.get("train_total_pixels", 1000.0)) + train_pixels)
+        self.preferences.set("train_total_gb", float(self.preferences.get("train_total_gb", 0.0)) + train_gb)
+        self.preferences.set("train_total_seconds", float(self.preferences.get("train_total_seconds", 1.0)) + train_seconds)
+
+        self.preferences.set("class_total_pixels", float(self.preferences.get("class_total_pixels", 1000.0)) + class_pixels)
+        self.preferences.set("class_total_gb", float(self.preferences.get("class_total_gb", 0.0)) + class_gb)
+        self.preferences.set("class_total_seconds", float(self.preferences.get("class_total_seconds", 1.0)) + class_seconds)
+
+        self.savepreferences()
+        self._append_log(
+            f"> Estatisticas acumuladas atualizadas | "
+            f"Treino: {train_pixels:.0f}px, {train_gb:.3f}GB | "
+            f"Classificacao: {class_pixels:.0f}px, {class_gb:.3f}GB | "
+            f"Tempo total execucao: {elapsed:.2f}s"
+        )
+        self._run_started_at = None
+        self._run_metrics = {}
+        self._eta_target = None
 
     def get_shapefile_entries(self):
         entries = []

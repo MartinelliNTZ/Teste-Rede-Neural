@@ -38,5 +38,11 @@
   "dropout_rate": 0.1,
   "use_mask": true,
   "alpha_threshold": 250,
-  "ram_limit_pct": 70
+  "ram_limit_pct": 70,
+  "train_total_pixels": 488676700.0,
+  "train_total_gb": 1.820653509348631,
+  "train_total_seconds": 192.34637824998936,
+  "class_total_pixels": 488676700.0,
+  "class_total_gb": 1.820653509348631,
+  "class_total_seconds": 192.34637824998936
 }
