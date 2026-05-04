@@ -39,10 +39,10 @@
   "use_mask": true,
   "alpha_threshold": 250,
   "ram_limit_pct": 70,
-  "train_total_pixels": 733014550.0,
-  "train_total_gb": 2.7309802640229464,
-  "train_total_seconds": 288.0941973000299,
-  "class_total_pixels": 733014550.0,
-  "class_total_gb": 2.7309802640229464,
-  "class_total_seconds": 288.0941973000299
+  "train_total_pixels": 977352400.0,
+  "train_total_gb": 3.641307018697262,
+  "train_total_seconds": 387.98292700003367,
+  "class_total_pixels": 977352400.0,
+  "class_total_gb": 3.641307018697262,
+  "class_total_seconds": 387.98292700003367
 }

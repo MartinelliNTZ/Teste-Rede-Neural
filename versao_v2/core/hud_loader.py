@@ -10,7 +10,7 @@ from .dark_charcoal_style import DarkCharcoalStyle
 class HudCircularRingsLoader(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.progress = 0
+        self.progress = 0.0
         self.phase = 0
         self.message = "Processando..."
         self.rings = [
@@ -28,8 +28,8 @@ class HudCircularRingsLoader(QWidget):
         self._timer.timeout.connect(self._animate)
         self._timer.start(16)
 
-    def set_progress(self, value: int, message: str = ""):
-        self.progress = max(0, min(100, int(value)))
+    def set_progress(self, value: float, message: str = ""):
+        self.progress = max(0.0, min(100.0, float(value)))
         if message:
             self.message = message
         self.update()
@@ -64,13 +64,13 @@ class HudCircularRingsLoader(QWidget):
         for ring in self.rings:
             self._draw_ring(p, center, ring)
 
-        p.setPen(QColor(DarkCharcoalStyle.TEXT_PRIMARY))
-        p.setFont(QFont("Segoe UI", 11, QFont.Weight.DemiBold))
-        p.drawText(QRectF(cx - 120, cy + 90, 240, 24), Qt.AlignmentFlag.AlignCenter, self.message)
+        p.setPen(QColor(DarkCharcoalStyle.ACCENT_GOLD))
+        p.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
+        p.drawText(QRectF(cx - 120, cy + 110, 240, 24), Qt.AlignmentFlag.AlignCenter, self.message)
 
         p.setPen(QColor(DarkCharcoalStyle.ACCENT_GOLD))
-        p.setFont(QFont("Consolas", 20, QFont.Weight.Bold))
-        p.drawText(QRectF(cx - 60, cy - 18, 120, 38), Qt.AlignmentFlag.AlignCenter, f"{self.progress}%")
+        p.setFont(QFont("Consolas", 16, QFont.Weight.Bold))
+        p.drawText(QRectF(cx - 60, cy - 0, 120, 38), Qt.AlignmentFlag.AlignCenter, f"{self.progress:.2f}%")
 
     def _draw_panel(self, painter: QPainter, rect: QRectF):
         grad = QLinearGradient(rect.topLeft(), rect.bottomLeft())

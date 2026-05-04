@@ -350,10 +350,10 @@ class MainController:
         self._refresh_time_based_progress()
 
     def _refresh_time_based_progress(self) -> None:
-        display_percent = self._time_based_progress_percent(self.view.progress.value())
+        display_percent = self._time_based_progress_percent(float(self.view.progress.value()))
         display_message = self._format_progress_message(self._last_progress_message)
-        self.view.progress.setValue(display_percent)
-        self.view.progress.setFormat(f" {display_percent}% - {display_message} ")
+        self.view.progress.setValue(int(round(display_percent)))
+        self.view.progress.setFormat(f" {display_percent:.2f}% - {display_message} ")
         if hasattr(self.view, "loader_overlay"):
             self.view.loader_overlay.set_progress(display_percent, display_message)
 
@@ -510,12 +510,12 @@ class MainController:
             return message
         return f"{message} | ETA: {self._eta_target.strftime('%H:%M:%S')}"
 
-    def _time_based_progress_percent(self, fallback_percent: int) -> int:
+    def _time_based_progress_percent(self, fallback_percent: float) -> float:
         if self._run_started_at is None or self._run_estimated_seconds <= 0:
-            return min(max(fallback_percent, 0), 100)
+            return min(max(fallback_percent, 0.0), 100.0)
         elapsed = max(perf_counter() - self._run_started_at, 0.0)
-        progress = int((elapsed / self._run_estimated_seconds) * 100.0)
-        return min(max(progress, 0), 100)
+        progress = (elapsed / self._run_estimated_seconds) * 100.0
+        return min(max(progress, 0.0), 100.0)
 
     def _finalize_run_metrics(self, success: bool) -> None:
         if not success or self._run_started_at is None:

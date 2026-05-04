@@ -62,6 +62,7 @@ class_config = ClassConfig(names=CLASS_NAMES)
 
 from shapely.geometry import shape, mapping
 
+
 def build_merged_geojson():
     features = []
 
@@ -73,30 +74,28 @@ def build_merged_geojson():
 
         with fiona.open(shp_path) as src:
             for feat in src:
-                geom = feat['geometry']
+                geom = feat["geometry"]
 
                 # 🔥 CONVERSÃO CORRETA
                 geom_json = mapping(shape(geom))
 
-                features.append({
-                    "type": "Feature",
-                    "geometry": geom_json,
-                    "properties": {
-                        "class_id": class_id
+                features.append(
+                    {
+                        "type": "Feature",
+                        "geometry": geom_json,
+                        "properties": {"class_id": class_id},
                     }
-                })
+                )
 
-    geojson = {
-        "type": "FeatureCollection",
-        "features": features
-    }
+    geojson = {"type": "FeatureCollection", "features": features}
 
-    out_path = os.path.join(OUT_DIR, 'labels.geojson')
+    out_path = os.path.join(OUT_DIR, "labels.geojson")
 
-    with open(out_path, 'w') as f:
+    with open(out_path, "w") as f:
         json.dump(geojson, f)
 
     return out_path
+
 
 # =============================
 # LABEL SOURCE (SIMPLES E CORRETO)
@@ -126,25 +125,45 @@ scene = SceneConfig(
     label_source=build_label_source(),
 )
 
-dataset = DatasetConfig(train_scenes=[scene], validation_scenes=[scene])
+dataset = DatasetConfig(
+    class_config=class_config,  # ✅ AGORA OBRIGATÓRIO AQUI
+    train_scenes=[scene],
+    validation_scenes=[scene],
+)
 
 # =============================
 # BACKEND
 # =============================
 
+from rastervision.pytorch_backend import (
+    PyTorchSemanticSegmentationConfig,
+    SemanticSegmentationModelConfig,
+    SolverConfig,
+    DataConfig
+)
+
 backend = PyTorchSemanticSegmentationConfig(
-    train_batch_size=4, eval_batch_size=4, num_epochs=10, lr=1e-4
+    model=SemanticSegmentationModelConfig(
+        backbone='resnet50',   # pode trocar depois
+        pretrained=True
+    ),
+    solver=SolverConfig(
+        lr=1e-4,
+        num_epochs=10
+    ),
+    data=DataConfig(
+        train_batch_size=4,
+        eval_batch_size=4
+    )
 )
 
 # =============================
 # PIPELINE
 # =============================
-
 config = SemanticSegmentationConfig(
     root_uri=OUT_DIR,
     dataset=dataset,
     backend=backend,
-    class_config=class_config,
     train_chip_sz=256,
     predict_chip_sz=256,
 )
