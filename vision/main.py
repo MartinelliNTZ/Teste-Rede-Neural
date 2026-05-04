@@ -5,8 +5,8 @@ import glob
 import json
 import fiona
 
-from rastervision.core.backend import BackendConfig
-from rastervision.pytorch_backend import PyTorchSemanticSegmentationConfig
+from shapely.geometry import shape, mapping
+
 from rastervision.core.data import (
     ClassConfig,
     DatasetConfig,
@@ -18,6 +18,7 @@ from rastervision.core.data import (
     RasterizerConfig,
 )
 from rastervision.core.rv_pipeline import SemanticSegmentationConfig
+from rastervision.pytorch_backend import PyTorchSemanticSegmentationConfig
 
 # =============================
 # CONFIG
@@ -29,17 +30,22 @@ OUT_DIR = os.path.join(ROOT, "saida")
 
 os.makedirs(OUT_DIR, exist_ok=True)
 
-# pega tiff automaticamente
-tiffs = glob.glob(os.path.join(DATA_DIR, "*.tif")) + glob.glob(
-    os.path.join(DATA_DIR, "*.tiff")
-)
+# =============================
+# TIFF
+# =============================
+
+tiffs = glob.glob(os.path.join(DATA_DIR, "*.tif")) + \
+        glob.glob(os.path.join(DATA_DIR, "*.tiff"))
 
 if not tiffs:
-    raise FileNotFoundError(f"Nenhum arquivo .tif/.tiff encontrado em: {DATA_DIR}")
+    raise FileNotFoundError(f"Nenhum TIFF encontrado em: {DATA_DIR}")
 
 IMAGE_PATH = tiffs[0]
 
-# shapefiles
+# =============================
+# SHAPES
+# =============================
+
 SHAPES = {
     "palhada": os.path.join(DATA_DIR, "palhada.shp"),
     "solo": os.path.join(DATA_DIR, "solo.shp"),
@@ -47,125 +53,91 @@ SHAPES = {
     "daninhas": os.path.join(DATA_DIR, "daninhas.shp"),
 }
 
-# =============================
-# CLASSES (SEM background!)
-# =============================
-
 CLASS_NAMES = ["palhada", "solo", "floresta", "daninhas"]
 
 class_config = ClassConfig(names=CLASS_NAMES)
 
 # =============================
-# 🔥 FUNÇÃO QUE UNE SHP → GEOJSON
+# GEOJSON BUILDER
 # =============================
 
-
-from shapely.geometry import shape, mapping
-
-
-def build_merged_geojson():
+def build_geojson():
     features = []
 
     for class_id, class_name in enumerate(CLASS_NAMES):
-        shp_path = SHAPES[class_name]
+        shp = SHAPES[class_name]
 
-        if not os.path.exists(shp_path):
+        if not os.path.exists(shp):
             continue
 
-        with fiona.open(shp_path) as src:
+        with fiona.open(shp) as src:
             for feat in src:
-                geom = feat["geometry"]
+                geom = mapping(shape(feat["geometry"]).buffer(0))
 
-                # 🔥 CONVERSÃO CORRETA
-                geom_json = mapping(shape(geom))
+                features.append({
+                    "type": "Feature",
+                    "geometry": geom,
+                    "properties": {"class_id": class_id},
+                })
 
-                features.append(
-                    {
-                        "type": "Feature",
-                        "geometry": geom_json,
-                        "properties": {"class_id": class_id},
-                    }
-                )
+    out = os.path.join(OUT_DIR, "labels.geojson")
 
-    geojson = {"type": "FeatureCollection", "features": features}
+    with open(out, "w") as f:
+        json.dump({"type": "FeatureCollection", "features": features}, f)
 
-    out_path = os.path.join(OUT_DIR, "labels.geojson")
-
-    with open(out_path, "w") as f:
-        json.dump(geojson, f)
-
-    return out_path
-
+    return out
 
 # =============================
-# LABEL SOURCE (SIMPLES E CORRETO)
+# LABEL SOURCE
 # =============================
-
 
 def build_label_source():
-    geojson_path = build_merged_geojson()
-
-    vector_source = GeoJSONVectorSourceConfig(uris=[geojson_path])
+    geojson = build_geojson()
 
     return SemanticSegmentationLabelSourceConfig(
         raster_source=RasterizedSourceConfig(
-            vector_source=vector_source,
+            vector_source=GeoJSONVectorSourceConfig(uris=[geojson]),
             rasterizer_config=RasterizerConfig(background_class_id=0),
         )
     )
-
 
 # =============================
 # SCENE
 # =============================
 
 scene = SceneConfig(
-    id="scene_1",
+    id="scene",
     raster_source=RasterioSourceConfig(uris=[IMAGE_PATH]),
     label_source=build_label_source(),
 )
 
 dataset = DatasetConfig(
-    class_config=class_config,  # ✅ AGORA OBRIGATÓRIO AQUI
+    class_config=class_config,
     train_scenes=[scene],
     validation_scenes=[scene],
 )
 
 # =============================
-# BACKEND
+# BACKEND (VERSÃO ESTÁVEL)
 # =============================
 
-from rastervision.pytorch_backend import (
-    PyTorchSemanticSegmentationConfig,
-    SemanticSegmentationModelConfig,
-    SolverConfig,
-    DataConfig
-)
+backend = PyTorchSemanticSegmentationConfig()
 
-backend = PyTorchSemanticSegmentationConfig(
-    model=SemanticSegmentationModelConfig(
-        backbone='resnet50',   # pode trocar depois
-        pretrained=True
-    ),
-    solver=SolverConfig(
-        lr=1e-4,
-        num_epochs=10
-    ),
-    data=DataConfig(
-        train_batch_size=4,
-        eval_batch_size=4
-    )
-)
+# 👉 overrides simples e seguros
+backend.train_chip_sz = 256
+backend.predict_chip_sz = 256
+backend.num_epochs = 10
+backend.train_batch_size = 4
+backend.eval_batch_size = 4
 
 # =============================
 # PIPELINE
 # =============================
+
 config = SemanticSegmentationConfig(
     root_uri=OUT_DIR,
     dataset=dataset,
     backend=backend,
-    train_chip_sz=256,
-    predict_chip_sz=256,
 )
 
 # =============================

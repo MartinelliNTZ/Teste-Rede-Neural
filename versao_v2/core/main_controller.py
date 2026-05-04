@@ -13,6 +13,7 @@ os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 os.environ["TF_CPP_MAX_LOG_LEVEL"] = "3"
 
 import warnings
+import html
 from pathlib import Path
 from datetime import datetime, timedelta
 from time import perf_counter
@@ -305,7 +306,51 @@ class MainController:
             self._append_log(f"> Falha ao salvar configuracao: {exc}")
 
     def _append_log(self, message: str) -> None:
-        self.view.txt_log.append(str(message))
+        text = str(message)
+        lower = text.lower()
+
+        if "treinando modelo" in lower:
+            self._last_progress_message = "Treinando"
+            self._refresh_time_based_progress()
+        elif "classificando imagem completa" in lower:
+            self._last_progress_message = "Classificando"
+            self._refresh_time_based_progress()
+
+        self.view.txt_log.append(self._format_log_html(text))
+
+    def _format_log_html(self, text: str) -> str:
+        safe = html.escape(text)
+        lower = text.lower()
+
+        color = "#CFCFCF"  # default
+        weight = "400"
+
+        if text.startswith("> ETA estimado:"):
+            color = "#D4A853"
+            weight = "700"
+        elif text.startswith("> ERRO:"):
+            color = "#FF6B6B"
+            weight = "700"
+        elif text.startswith(">"):
+            color = "#8EC5FF"
+            weight = "600"
+        elif "treinando modelo" in lower or "classificando imagem completa" in lower:
+            color = "#D4A853"
+            weight = "700"
+        elif lower.startswith("epoch "):
+            color = "#7EE787"
+            weight = "500"
+        elif "salvando modelo" in lower or "info de execucao salva" in lower:
+            color = "#CFA8FF"
+            weight = "500"
+        elif "hardware:" in lower or "avaliando modelo" in lower:
+            color = "#56D4DD"
+            weight = "500"
+
+        return (
+            f"<span style='color:{color}; font-family:Consolas, \"Courier New\", monospace; "
+            f"font-size:12px; font-weight:{weight};'>{safe}</span>"
+        )
 
     def _set_running_state(self, running: bool) -> None:
         self.view.btn_executar.setEnabled(not running)
