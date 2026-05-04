@@ -103,6 +103,35 @@ QLabel#section_badge {{
     font-weight: 700;
 }}
 
+QWidget#title_bar {{
+    background-color: #202124;
+    border-bottom: 1px solid {c.BORDER};
+}}
+QLabel#window_title {{
+    color: {c.TEXT_PRIMARY};
+    font-size: 12px;
+    font-weight: 600;
+}}
+QPushButton#title_btn, QPushButton#title_btn_close {{
+    background-color: transparent;
+    color: {c.TEXT_PRIMARY};
+    border: none;
+    border-radius: 4px;
+    min-width: 30px;
+    max-width: 30px;
+    min-height: 24px;
+    max-height: 24px;
+    font-size: 12px;
+    font-weight: 600;
+}}
+QPushButton#title_btn:hover {{
+    background-color: {c.CARD_BG};
+}}
+QPushButton#title_btn_close:hover {{
+    background-color: {c.DANGER};
+    color: white;
+}}
+
 QLineEdit {{
     background-color: {c.INPUT_BG};
     border: 1px solid {c.BORDER};

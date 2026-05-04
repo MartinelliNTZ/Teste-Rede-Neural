@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
     QGroupBox, QSplitter, QTextEdit, QProgressBar, QFrame, QSizePolicy,
     QScrollArea
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QPoint
 from PySide6.QtGui import QFont
 from core.dark_charcoal_style import DarkCharcoalStyle
 from core.hud_loader import HudCircularRingsLoader
@@ -97,18 +97,56 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Classificador Raster Neural — v6 Premium")
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window)
         self.setMinimumSize(1280, 860)
         self.resize(1440, 900)
+        self._drag_active = False
+        self._drag_offset = QPoint()
         self._build_ui()
 
     def _build_ui(self):
+        root = QWidget()
+        root_layout = QVBoxLayout(root)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
+        self.setCentralWidget(root)
+
+        title_bar = QWidget()
+        title_bar.setObjectName("title_bar")
+        title_bar.setFixedHeight(38)
+        title_layout = QHBoxLayout(title_bar)
+        title_layout.setContentsMargins(12, 0, 6, 0)
+        title_layout.setSpacing(8)
+
+        self.lbl_window_title = QLabel(self.windowTitle())
+        self.lbl_window_title.setObjectName("window_title")
+        title_layout.addWidget(self.lbl_window_title)
+        title_layout.addStretch()
+
+        self.btn_min = QPushButton("—")
+        self.btn_min.setObjectName("title_btn")
+        self.btn_min.clicked.connect(self.showMinimized)
+        title_layout.addWidget(self.btn_min)
+
+        self.btn_max = QPushButton("□")
+        self.btn_max.setObjectName("title_btn")
+        self.btn_max.clicked.connect(self._toggle_maximize_restore)
+        title_layout.addWidget(self.btn_max)
+
+        self.btn_close = QPushButton("✕")
+        self.btn_close.setObjectName("title_btn_close")
+        self.btn_close.clicked.connect(self.close)
+        title_layout.addWidget(self.btn_close)
+
+        root_layout.addWidget(title_bar)
+
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         central = QWidget()
         scroll.setWidget(central)
-        self.setCentralWidget(scroll)
+        root_layout.addWidget(scroll, 1)
 
         main_layout = QVBoxLayout(central)
         main_layout.setContentsMargins(28, 24, 28, 24)
@@ -509,10 +547,46 @@ class MainWindow(QMainWindow):
                     pass
                 btn.clicked.connect(lambda _, nr=r: self._remove_shp_row(nr))
 
+    def _toggle_maximize_restore(self):
+        if self.isMaximized():
+            self.showNormal()
+            if hasattr(self, "btn_max"):
+                self.btn_max.setText("□")
+        else:
+            self.showMaximized()
+            if hasattr(self, "btn_max"):
+                self.btn_max.setText("❐")
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
         if hasattr(self, "loader_overlay"):
             self.loader_overlay.setGeometry(self.rect())
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and event.position().y() <= 38:
+            self._drag_active = True
+            self._drag_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._drag_active and not self.isMaximized():
+            self.move(event.globalPosition().toPoint() - self._drag_offset)
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self._drag_active = False
+        super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and event.position().y() <= 38:
+            self._toggle_maximize_restore()
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
