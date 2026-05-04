@@ -30,6 +30,7 @@ class Evaluator:
         Y_test,
         class_names: List[str],
         output_dir: Path,
+        history=None,
     ) -> EvaluationResult:
         output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -56,7 +57,7 @@ class Evaluator:
         Evaluator._save_confusion_matrix(y_true, y_pred, class_names, confusion_matrix_path)
 
         plot_loss_path = output_dir / "avaliacao_loss_accuracy.png"
-        Evaluator._save_loss_accuracy_plot(model.history, plot_loss_path)
+        Evaluator._save_loss_accuracy_plot(history, plot_loss_path)
 
         return EvaluationResult(
             accuracy=accuracy,

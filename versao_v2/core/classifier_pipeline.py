@@ -8,6 +8,7 @@ from typing import Callable, Dict, List, Optional
 
 import geopandas as gpd
 from tensorflow.keras.models import load_model
+from tensorflow.keras.optimizers import Adam
 
 from .dataset_splitter import DatasetSplitter
 from .evaluator import Evaluator, EvaluationResult
@@ -179,6 +180,58 @@ class ClassifierPipeline:
         with info_path.open("w", encoding="utf-8") as handle:
             json.dump(self._json_safe(payload), handle, indent=2, ensure_ascii=False)
 
+    def _expected_output_units(self) -> int:
+        return 1 if len(self.class_names) == 2 else len(self.class_names)
+
+    def _expected_loss(self) -> str:
+        return "binary_crossentropy" if len(self.class_names) == 2 else "sparse_categorical_crossentropy"
+
+    def _load_existing_model(self):
+        if not self.config.existing_model_path:
+            raise ValueError("Modelo existente nao informado")
+        self._log(f"Carregando modelo existente: {self.config.existing_model_path}")
+        return load_model(str(self.config.existing_model_path))
+
+    def _validate_model_compatibility(self, n_bands_feature: int) -> None:
+        if self.model is None:
+            raise ValueError("Modelo nao carregado")
+
+        model_input_shape = getattr(self.model, "input_shape", None)
+        if not model_input_shape or len(model_input_shape) < 2:
+            raise ValueError("Nao foi possivel validar input_shape do modelo existente")
+
+        model_input_features = model_input_shape[-1]
+        if model_input_features != n_bands_feature:
+            raise ValueError(
+                "Modelo existente incompativel com o raster de treino: "
+                f"modelo espera {model_input_features} bandas, mas os dados atuais possuem {n_bands_feature}."
+            )
+
+        model_output_shape = getattr(self.model, "output_shape", None)
+        if not model_output_shape or len(model_output_shape) < 2:
+            raise ValueError("Nao foi possivel validar output_shape do modelo existente")
+
+        model_output_units = model_output_shape[-1]
+        expected_output_units = self._expected_output_units()
+        if model_output_units != expected_output_units:
+            raise ValueError(
+                "Modelo existente incompativel com as classes atuais: "
+                f"modelo possui saida com {model_output_units} unidade(s), "
+                f"mas a configuracao atual requer {expected_output_units}."
+            )
+
+    def _ensure_model_compiled_for_training(self) -> None:
+        if self.model is None:
+            raise ValueError("Modelo nao carregado")
+
+        is_compiled = getattr(self.model, "optimizer", None) is not None
+        if is_compiled:
+            return
+
+        loss = self._expected_loss()
+        self._log(f"Modelo existente sem estado de compilacao. Recompilando com loss={loss}.")
+        self.model.compile(loss=loss, optimizer=Adam(), metrics=["accuracy"])
+
     def execute(self) -> PipelineResult:
         self.config.validate()
         self._log("Iniciando pipeline do classificador")
@@ -215,7 +268,7 @@ class ClassifierPipeline:
             random_state=self.config.random_state,
         )
 
-        self._log("Construindo o modelo")
+        self._log("Preparando o modelo")
         if self.config.model_action == "Treinar modelo novo":
             self.model = ModelFactory.build(
                 input_shape=(split.X_train.shape[1],),
@@ -225,10 +278,12 @@ class ClassifierPipeline:
                 dropout_rate=self.config.dropout_rate,
             )
         else:
-            self._log("Carregando modelo existente")
-            self.model = load_model(str(self.config.existing_model_path))
+            self.model = self._load_existing_model()
+            self._validate_model_compatibility(n_bands_feature)
+            self._log("Modelo existente validado com sucesso")
 
         if self.config.model_action != "Usar modelo existente":
+            self._ensure_model_compiled_for_training()
             self._log("Treinando modelo")
             self.history = Trainer.train(
                 self.model,
@@ -259,6 +314,7 @@ class ClassifierPipeline:
             split.Y_test,
             class_names=self.class_names,
             output_dir=Path("resultado"),
+            history=self.history,
         )
 
         self._log("Classificando imagem completa")

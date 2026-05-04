@@ -60,6 +60,7 @@ class MainController:
         self.view = view
         self.preferences = Preferences(Path("config") / "preferences.json")
         self.worker = None
+        self._loading_preferences = False
 
         self._connect_signals()
         self._init_defaults()
@@ -376,6 +377,7 @@ class MainController:
         self.savepreferences()
 
     def loadpreferences(self) -> None:
+        self._loading_preferences = True
         self.preferences.loadpreferences()
 
         self.view.row_img_treino.edit.setText(str(self.preferences.get("training_image", self.view.row_img_treino.path())))
@@ -406,8 +408,12 @@ class MainController:
 
         self._on_model_action_changed()
         self._update_resumo()
+        self._loading_preferences = False
+        self.savepreferences()
 
     def savepreferences(self) -> None:
+        if self._loading_preferences:
+            return
         self.preferences.savepreferences(self.get_pipeline_config())
 
     def get_shapefile_entries(self):
@@ -442,7 +448,7 @@ class MainController:
             "model_action": self.get_model_action(),
             "save_model": self.view.chk_salvar_modelo.isChecked(),
             "model_path": self.view.row_modelo_path.path(),
-            "existing_model_path": self.view.row_modelo_existente.path() if self.view.row_modelo_existente.isVisible() else None,
+            "existing_model_path": self.view.row_modelo_existente.path(),
             "test_size": self.view.spin_test_size.value(),
             "random_state": self.view.spin_random.value(),
             "epochs": self.view.spin_epochs.value(),
