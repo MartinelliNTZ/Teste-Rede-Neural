@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
 Controlador Principal para a UI do Classificador Raster Neural v6
 =================================================================
@@ -6,30 +6,26 @@ Logica de controle separada da view (MainWindow).
 """
 
 import os
-import sys
 
-# ═══════════════════════════════════════════════════════════════════════
-# SUPressao de warnings do TensorFlow — DEVE ser configurado antes dos imports
-# ═══════════════════════════════════════════════════════════════════════
-# Ja configurado no launcher.py, mas redundante aqui para garantir
+# Supressao de warnings do TensorFlow - deve ser configurado antes dos imports
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 os.environ["TF_CPP_MAX_LOG_LEVEL"] = "3"
 
 import warnings
-warnings.filterwarnings("ignore", category=DeprecationWarning)
-warnings.filterwarnings("ignore", category=FutureWarning)
-warnings.filterwarnings("ignore", category=UserWarning, module="keras")
-
-import json
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import QTableWidgetItem, QLineEdit, QSpinBox, QPushButton, QFileDialog
 
+from core.Preferences import Preferences
 from core.dark_charcoal_style import DarkCharcoalStyle
 from core.classifier_pipeline import ClassifierPipeline
 from core.pipeline_config import PipelineConfig, PipelineConfigError
+
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", category=UserWarning, module="keras")
 
 
 class PipelineWorker(QThread):
@@ -50,7 +46,7 @@ class PipelineWorker(QThread):
                 progress_callback=self._emit_progress,
             )
             pipeline.execute()
-            self.finished.emit("Pipeline concluído com sucesso")
+            self.finished.emit("Pipeline concluido com sucesso")
         except Exception as exc:
             self.error.emit(str(exc))
 
@@ -61,10 +57,13 @@ class PipelineWorker(QThread):
 class MainController:
     def __init__(self, view):
         self.view = view
+        self.preferences = Preferences(Path("config") / "preferences.json")
+        self.worker = None
+
         self._connect_signals()
         self._init_defaults()
+        self.loadpreferences()
         self._update_resumo()
-        self.worker = None
 
     def _connect_signals(self):
         self.view.btn_executar.clicked.connect(self._on_executar)
@@ -74,23 +73,38 @@ class MainController:
         self.view.combo_model_action.currentTextChanged.connect(self._on_model_action_changed)
 
         widgets_bind = [
-            self.view.row_img_treino.edit, self.view.row_img_classif.edit,
-            self.view.row_img_saida.edit, self.view.edit_camadas,
-            self.view.combo_ativacao, self.view.spin_dropout,
-            self.view.spin_epochs, self.view.spin_batch_train,
-            self.view.spin_batch_pred, self.view.spin_test_size,
-            self.view.spin_ram, self.view.chk_mascara, self.view.chk_salvar_modelo,
-            self.view.combo_model_action
+            self.view.row_img_treino.edit,
+            self.view.row_img_classif.edit,
+            self.view.row_img_saida.edit,
+            self.view.edit_camadas,
+            self.view.combo_ativacao,
+            self.view.spin_dropout,
+            self.view.spin_epochs,
+            self.view.spin_batch_train,
+            self.view.spin_batch_pred,
+            self.view.spin_test_size,
+            self.view.spin_ram,
+            self.view.chk_mascara,
+            self.view.chk_salvar_modelo,
+            self.view.combo_model_action,
+            self.view.spin_random,
+            self.view.spin_alpha,
+            self.view.row_modelo_path.edit,
+            self.view.row_modelo_existente.edit,
         ]
         for w in widgets_bind:
             if hasattr(w, "textChanged"):
                 w.textChanged.connect(self._update_resumo)
+                w.textChanged.connect(self.savepreferences)
             elif hasattr(w, "currentTextChanged"):
                 w.currentTextChanged.connect(self._update_resumo)
+                w.currentTextChanged.connect(self.savepreferences)
             elif hasattr(w, "valueChanged"):
                 w.valueChanged.connect(self._update_resumo)
+                w.valueChanged.connect(self.savepreferences)
             elif hasattr(w, "stateChanged"):
                 w.stateChanged.connect(self._update_resumo)
+                w.stateChanged.connect(self.savepreferences)
 
     def _init_defaults(self):
         default_shps = [
@@ -114,10 +128,12 @@ class MainController:
         spin_cls.setRange(0, 999)
         spin_cls.setValue(classe)
         spin_cls.setStyleSheet("background-color: transparent; border: none;")
+        spin_cls.valueChanged.connect(self.savepreferences)
         self.view.table_shp.setCellWidget(row, 1, spin_cls)
 
         edit_legenda = QLineEdit(legenda)
         edit_legenda.setPlaceholderText("Legenda da classe...")
+        edit_legenda.textChanged.connect(self.savepreferences)
         self.view.table_shp.setCellWidget(row, 2, edit_legenda)
 
         btn_rem = QPushButton("Remover")
@@ -137,6 +153,7 @@ class MainController:
                     pass
                 btn.clicked.connect(lambda _, nr=r: self._remove_shp_row(nr))
         self._update_resumo()
+        self.savepreferences()
 
     def _on_add_shp(self):
         path, _ = QFileDialog.getOpenFileName(
@@ -151,6 +168,7 @@ class MainController:
             default_legend = Path(path).stem
             self._add_shp_row(path, max_cls + 1, default_legend)
             self._update_resumo()
+            self.savepreferences()
 
     def _on_model_action_changed(self):
         action = self.view.combo_model_action.currentText()
@@ -159,10 +177,10 @@ class MainController:
         self._update_resumo()
 
     def _update_resumo(self):
-        treino = self.view.row_img_treino.path() or "—"
-        classif = self.view.row_img_classif.path() or "—"
-        saida = self.view.row_img_saida.path() or "—"
-        camadas = self.view.edit_camadas.text() or "—"
+        treino = self.view.row_img_treino.path() or "-"
+        classif = self.view.row_img_classif.path() or "-"
+        saida = self.view.row_img_saida.path() or "-"
+        camadas = self.view.edit_camadas.text() or "-"
         ativ = self.view.combo_ativacao.currentText()
         drop = self.view.spin_dropout.value()
         ep = self.view.spin_epochs.value()
@@ -179,10 +197,10 @@ class MainController:
             f"<b>Acao Modelo:</b> {model_action}<br>"
         )
         if self.view.row_modelo_existente.isVisible():
-            existing_model = self.view.row_modelo_existente.path() or "—"
+            existing_model = self.view.row_modelo_existente.path() or "-"
             resumo += f"<b>Modelo Existente:</b> {existing_model}<br>"
         resumo += (
-            f"<b>Rede:</b> [{camadas}] — ativacao {ativ}, dropout {drop}<br>"
+            f"<b>Rede:</b> [{camadas}] - ativacao {ativ}, dropout {drop}<br>"
             f"<b>Treino:</b> {ep} epocas | batch {bt} / pred {bp}<br>"
             f"<b>RAM limite:</b> {ram}% | Mascara: {mask}"
         )
@@ -190,16 +208,17 @@ class MainController:
 
     def _on_executar(self):
         if self.worker is not None and self.worker.isRunning():
-            self._append_log("> O pipeline já está em execução")
+            self._append_log("> O pipeline ja esta em execucao")
             return
 
         pipeline_data = self.get_pipeline_config()
         try:
             config = PipelineConfig.from_dict(pipeline_data)
         except PipelineConfigError as exc:
-            self._append_log(f"> Configuração inválida: {exc}")
+            self._append_log(f"> Configuracao invalida: {exc}")
             return
 
+        self.savepreferences()
         self._append_log("> Pipeline iniciado")
         self._set_running_state(True)
         self.worker = PipelineWorker(config)
@@ -218,9 +237,10 @@ class MainController:
         try:
             config = PipelineConfig.load(Path(path))
             self._populate_fields(config)
-            self._append_log(f"> Configuração carregada: {path}")
+            self._append_log(f"> Configuracao carregada: {path}")
+            self.savepreferences()
         except Exception as exc:
-            self._append_log(f"> Falha ao carregar configuração: {exc}")
+            self._append_log(f"> Falha ao carregar configuracao: {exc}")
 
     def _on_save_cfg(self):
         path, _ = QFileDialog.getSaveFileName(
@@ -231,9 +251,9 @@ class MainController:
         try:
             config = PipelineConfig.from_dict(self.get_pipeline_config())
             config.save(Path(path))
-            self._append_log(f"> Configuração salva: {path}")
+            self._append_log(f"> Configuracao salva: {path}")
         except Exception as exc:
-            self._append_log(f"> Falha ao salvar configuração: {exc}")
+            self._append_log(f"> Falha ao salvar configuracao: {exc}")
 
     def _append_log(self, message: str) -> None:
         self.view.txt_log.append(str(message))
@@ -269,13 +289,13 @@ class MainController:
 
     def _on_progress_update(self, percent: int, message: str) -> None:
         self.view.progress.setValue(min(max(percent, 0), 100))
-        self.view.progress.setFormat(f" {percent}% — {message} ")
+        self.view.progress.setFormat(f" {percent}% - {message} ")
 
     def _on_pipeline_finished(self, message: str) -> None:
         self._append_log(f"> {message}")
         self._set_running_state(False)
         self.view.progress.setValue(100)
-        self.view.progress.setFormat(" 100% — concluído ")
+        self.view.progress.setFormat(" 100% - concluido ")
 
     def _on_pipeline_error(self, message: str) -> None:
         self._append_log(f"> ERRO: {message}")
@@ -311,7 +331,48 @@ class MainController:
         self.view.row_modelo_path.edit.setText(str(config.model_path))
         self.view.combo_model_action.setCurrentText(config.model_action)
         self.view.row_modelo_existente.edit.setText(str(config.existing_model_path or ""))
+
+        self.view.table_shp.setRowCount(0)
+        for entry in config.shapefiles:
+            self._add_shp_row(str(entry.path), int(entry.class_id), str(entry.legend or ""))
+
         self._on_model_action_changed()
+        self.savepreferences()
+
+    def loadpreferences(self) -> None:
+        self.preferences.loadpreferences()
+
+        self.view.row_img_treino.edit.setText(str(self.preferences.get("training_image", self.view.row_img_treino.path())))
+        self.view.row_img_classif.edit.setText(str(self.preferences.get("classification_image", self.view.row_img_classif.path())))
+        self.view.row_img_saida.edit.setText(str(self.preferences.get("output", self.view.row_img_saida.path())))
+        self.view.edit_camadas.setText(str(self.preferences.get("hidden_layers", self.view.edit_camadas.text())))
+        self.view.combo_ativacao.setCurrentText(str(self.preferences.get("activation", self.view.combo_ativacao.currentText())))
+        self.view.spin_dropout.setValue(float(self.preferences.get("dropout_rate", self.view.spin_dropout.value())))
+        self.view.spin_epochs.setValue(int(self.preferences.get("epochs", self.view.spin_epochs.value())))
+        self.view.spin_batch_train.setValue(int(self.preferences.get("batch_size_train", self.view.spin_batch_train.value())))
+        self.view.spin_batch_pred.setValue(int(self.preferences.get("batch_size_pred", self.view.spin_batch_pred.value())))
+        self.view.spin_test_size.setValue(float(self.preferences.get("test_size", self.view.spin_test_size.value())))
+        self.view.spin_random.setValue(int(self.preferences.get("random_state", self.view.spin_random.value())))
+        self.view.spin_ram.setValue(int(self.preferences.get("ram_limit_pct", self.view.spin_ram.value())))
+        self.view.chk_mascara.setChecked(bool(self.preferences.get("use_mask", self.view.chk_mascara.isChecked())))
+        self.view.spin_alpha.setValue(int(self.preferences.get("alpha_threshold", self.view.spin_alpha.value())))
+        self.view.chk_salvar_modelo.setChecked(bool(self.preferences.get("save_model", self.view.chk_salvar_modelo.isChecked())))
+        self.view.row_modelo_path.edit.setText(str(self.preferences.get("model_path", self.view.row_modelo_path.path())))
+        self.view.combo_model_action.setCurrentText(str(self.preferences.get("model_action", self.view.combo_model_action.currentText())))
+        self.view.row_modelo_existente.edit.setText(str(self.preferences.get("existing_model_path", self.view.row_modelo_existente.path())))
+
+        shapefiles = self.preferences.get("shapefiles", [])
+        if isinstance(shapefiles, list) and shapefiles:
+            self.view.table_shp.setRowCount(0)
+            for item in shapefiles:
+                if isinstance(item, dict) and "path" in item and "class_id" in item:
+                    self._add_shp_row(str(item["path"]), int(item["class_id"]), str(item.get("legend", "")))
+
+        self._on_model_action_changed()
+        self._update_resumo()
+
+    def savepreferences(self) -> None:
+        self.preferences.savepreferences(self.get_pipeline_config())
 
     def get_shapefile_entries(self):
         entries = []
@@ -337,7 +398,7 @@ class MainController:
         return self.view.combo_model_action.currentText()
 
     def get_pipeline_config(self):
-        config = {
+        return {
             "shapefiles": self.get_shapefile_entries(),
             "output": self.get_output_path(),
             "training_image": self.view.row_img_treino.path(),
@@ -358,4 +419,3 @@ class MainController:
             "alpha_threshold": self.view.spin_alpha.value(),
             "ram_limit_pct": self.view.spin_ram.value(),
         }
-        return config
