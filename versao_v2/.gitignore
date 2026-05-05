@@ -1,7 +1,0 @@
-*.pyc
-*.keras
-*.html
-*.csv
-*.log
-__pycache__/
-*.pth
