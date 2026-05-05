@@ -196,9 +196,10 @@ def train(image_path):
                     lx  = np.clip(xs_s[sel]-x0, 0, w-1)
                     feats_list.append(ft[ly, lx])
             if feats_list:
+                total_samples = sum(len(f) for f in feats_list)
                 X_all.append(np.vstack(feats_list))
-                y_all.append(np.full(len(feats_list[-1]), cid, dtype=np.int32))
-                print(f"  {cfg['nome']}: {len(feats_list[-1]):,} amostras ✓")
+                y_all.append(np.full(total_samples, cid, dtype=np.int32))
+                print(f"  {cfg['nome']}: {total_samples:,} amostras ✓")
 
     X = np.vstack(X_all)
     y = np.concatenate(y_all)
@@ -284,29 +285,26 @@ def predict_rf(clf, image_path):
 # ETAPA 3: REFINAMENTO COM SAM 2
 # ──────────────────────────────────────
 def load_sam():
-    from sam2.build_sam import build_sam2
-    from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
-    if not os.path.exists(SAM_CHECKPOINT):
-        raise FileNotFoundError(
-            f"Modelo SAM2 não encontrado em {SAM_CHECKPOINT}. "
-            "Baixe de https://huggingface.co/facebook/sam2-hiera-large"
-        )
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    sam = build_sam2("sam2_hiera_large", SAM_CHECKPOINT, device=device)
-    mask_generator = SAM2AutomaticMaskGenerator(
-        sam,
-        points_per_side=32,
-        pred_iou_thresh=0.7,
-        stability_score_thresh=0.85,
-        min_mask_region_area=100,   # menor segmento SAM (px)
-    )
-    return mask_generator
+    try:
+        from transformers import pipeline
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        device_id = 0 if device == "cuda" else -1
+        print(f"  Carregando SAM2 via Transformers (device={device})...")
+        gen = pipeline("mask-generation", model="facebook/sam2-hiera-large", device=device_id)
+        print(f"  SAM2 carregado com sucesso")
+        return gen
+    except Exception as e:
+        print(f"  [AVISO] Falha ao carregar SAM2: {e}")
+        print(f"  Usando apenas RF (sem refinamento SAM2)")
+        return None
 
 def refine_with_sam(image_path, rf_pred_path):
     print("\n"+"─"*60)
     print("ETAPA 4: REFINAMENTO COM SAM 2")
     print("─"*60)
-    mask_generator = load_sam()
+    
+    # Carrega SAM2 (pode retornar None se falhar)
+    mask_gen = load_sam()
 
     # Abre imagem original e raster classificado
     with rasterio.open(image_path) as src_img, \
@@ -330,7 +328,7 @@ def refine_with_sam(image_path, rf_pred_path):
         total = n_ty * n_tx
         done = 0
 
-        # Mapa de contagem para média nas sobreposições
+        # Mapa de contagem para segmentos SAM
         count_map = np.zeros((H,W), dtype=np.uint8)
 
         for ty in range(n_ty):
@@ -349,42 +347,56 @@ def refine_with_sam(image_path, rf_pred_path):
                 # Lê tile do classificado RF
                 rf_tile = src_rf.read(1, window=Window(x0,y0,tw,th))
 
-                # SAM2 gera máscaras
-                masks = mask_generator.generate(img_tile)  # lista de dicts
+                y_slice = slice(y0, y0+th)
+                x_slice = slice(x0, x0+tw)
 
-                # Para cada máscara, voto majoritário no RF
-                for mask_info in masks:
-                    seg_mask = mask_info["segmentation"]  # bool (H_tile, W_tile)
-                    if seg_mask.sum() == 0:
-                        continue
-                    # Pega classes do RF dentro da máscara
-                    vals = rf_tile[seg_mask]
-                    vals = vals[vals > 0]  # exclui nodata
-                    if len(vals) == 0:
-                        continue
-                    dominant = np.bincount(vals).argmax()
-                    # Atribui ao raster refinado (com peso 1)
-                    y_slice = slice(y0, y0+th)
-                    x_slice = slice(x0, x0+tw)
-                    refined[y_slice, x_slice][seg_mask] = dominant
-                    count_map[y_slice, x_slice][seg_mask] += 1
+                # Se SAM2 disponível, gera máscaras
+                if mask_gen is not None:
+                    try:
+                        result = mask_gen(img_tile, points_per_batch=64)
+                        masks_pred = result.get("masks", [])
+                        
+                        # Para cada máscara, voto majoritário no RF
+                        for mask in masks_pred:
+                            seg_mask = mask > 0.5  # threshold
+                            if seg_mask.sum() < 10:  # muito pequeno
+                                continue
+                            # Pega classes do RF dentro da máscara
+                            vals = rf_tile[seg_mask]
+                            vals = vals[vals > 0]  # exclui nodata
+                            if len(vals) == 0:
+                                continue
+                            dominant = np.bincount(vals).argmax()
+                            # Atribui ao raster refinado
+                            refined[y_slice, x_slice][seg_mask] = dominant
+                            count_map[y_slice, x_slice][seg_mask] += 1
+                    except Exception as e:
+                        print(f"\n  [AVISO] Erro em SAM2 tile ({ty},{tx}): {e}")
+                        print(f"  Usando RF diretamente para este tile")
 
-                # Pixels não cobertos por nenhuma máscara: mantém classe RF original
-                covered = count_map[y_slice, x_slice] > 0
-                rf_tile_2d = rf_tile  # shape (th, tw)
-                # Atribui apenas onde count==0 e RF>0
-                assign_mask = ~covered & (rf_tile_2d > 0)
-                refined[y_slice, x_slice][assign_mask] = rf_tile_2d[assign_mask]
+                # Pixels não cobertos por SAM ou sem SAM: usa RF original
+                if mask_gen is None:
+                    # Sem SAM2: copia RF diretamente
+                    refined[y_slice, x_slice] = rf_tile
+                else:
+                    # Com SAM2: preenche furos com RF
+                    uncovered = count_map[y_slice, x_slice] == 0
+                    rf_tile_2d = rf_tile  # shape (th, tw)
+                    assign_mask = uncovered & (rf_tile_2d > 0)
+                    refined[y_slice, x_slice][assign_mask] = rf_tile_2d[assign_mask]
 
                 done += 1
                 pct = 100 * done / total
-                print(f"\r  [{('█'*int(pct/5)):{'░'}<20}] {pct:5.1f}%", end="", flush=True)
+                print(f"\r  [{('█'*int(pct/5)):{'░':<20}}] {pct:5.1f}%", end="", flush=True)
 
         # Salva raster refinado
         with rasterio.open(refined_path, "w", **out_meta) as dst:
             dst.write(refined[np.newaxis], 1)
 
-    print(f"\n  Raster refinado SAM2 salvo: {refined_path}")
+    if mask_gen is None:
+        print(f"\n  Usando apenas RF (sem SAM2): {refined_path}")
+    else:
+        print(f"\n  Raster refinado SAM2 salvo: {refined_path}")
     return refined_path, res_m, transform, crs
 
 
