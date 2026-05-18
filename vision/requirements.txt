@@ -1,0 +1,8 @@
+numpy
+rasterio
+fiona
+pyproj
+shapely
+scipy
+scikit-learn
+joblib

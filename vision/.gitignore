@@ -1,2 +1,5 @@
 *.pt
 *.joblib
+.venv/
+__pycache__/
+.venv_v10/

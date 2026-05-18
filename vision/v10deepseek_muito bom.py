@@ -41,8 +41,8 @@ warnings.filterwarnings("ignore")
 # ─────────────────────────────────────────────────────────────────────────────
 
 ROOT     = os.path.abspath(".")
-DATA_DIR = os.path.join(ROOT, "dados")
-OUT_DIR  = os.path.join(ROOT, "saida_v10_2")
+DATA_DIR = os.path.join(ROOT, "facco")
+OUT_DIR  = os.path.join(ROOT, "saida_v10_FACCO")
 
 SHAPES = {
     #1: os.path.join(DATA_DIR, "palhada.shp"),
