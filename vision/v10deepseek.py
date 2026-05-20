@@ -47,12 +47,12 @@ OUT_DIR  = os.path.join(ROOT, "saida_v10_imaru3")
 SHAPES = {
     #1: os.path.join(DATA_DIR, "palhada.shp"),
     1: os.path.join(DATA_DIR, "solo.shp"),
-    2: os.path.join(DATA_DIR, "floresta.shp"),
+    #2: os.path.join(DATA_DIR, "floresta.shp"),
     # Para adicionar a classe "outros" com shapefile próprio:
     # 4: os.path.join(DATA_DIR, "outros.shp"),
 }
 
-CLASS_NAMES  = {1: "solo", 2: "floresta", 3: "outros"}
+CLASS_NAMES  = {1: "solo", 2:  "outros"}#"floresta", 3: "outros"}
 
 # Treino
 SAMPLES_PER_CLASS = 60_000   # pixels de treino por classe (balanceado)
