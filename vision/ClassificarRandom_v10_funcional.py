@@ -602,7 +602,7 @@ if __name__ == "__main__":
     pred_path = predict(clf, image_path)
     vectorize(pred_path)
 
-    print("\n" + "=" * 60)
+    print("\n" + "=" * 3)
     print("  PIPELINE CONCLUÍDO")
     print("=" * 60)
     print(f"  TIFF classificado  →  saida/classificado.tif")

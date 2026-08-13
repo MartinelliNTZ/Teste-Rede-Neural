@@ -2,7 +2,6 @@
 """Lógica de classificação Random Forest — agnóstica de UI, com callbacks de progresso."""
 
 import os
-import glob
 import json
 import warnings
 import numpy as np
@@ -24,14 +23,12 @@ class ClassifierConfig:
     """Configuração do classificador — todos os parâmetros editáveis."""
 
     def __init__(self, **kwargs):
-        self.data_dir = kwargs.get("data_dir", "1-AETHERIS_CLASSIFIER_")
-        self.out_dir = kwargs.get("out_dir", "1-AETHERIS_CLASSIFIER_output")
+        # Arquivos de entrada/saída
+        self.input_tiff = kwargs.get("input_tiff", "")
+        self.output_tiff = kwargs.get("output_tiff", "")
 
-        # Shapefiles por classe
-        self.shape_solo = kwargs.get("shape_solo", "solo.shp")
-        self.shape_palhada = kwargs.get("shape_palhada", "palhada.shp")
-        self.shape_vegetacao = kwargs.get("shape_vegetacao", "vegetacao.shp")
-        self.shape_outros = kwargs.get("shape_outros", "")
+        # Lista de shapes: [{"name": "solo", "path": "solo.shp"}, ...]
+        self.shapes_list = kwargs.get("shapes_list", [])
 
         # Treino
         self.samples_per_class = int(kwargs.get("samples_per_class", 60000))
@@ -52,22 +49,31 @@ class ClassifierConfig:
         self.force_retrain = bool(kwargs.get("force_retrain", False))
 
     @property
+    def out_dir(self):
+        """Pasta onde o arquivo de saída está — demais arquivos vão para lá."""
+        if self.output_tiff:
+            return os.path.dirname(os.path.abspath(self.output_tiff))
+        return os.path.abspath(".")
+
+    @property
     def shapes(self):
-        """Dicionário de shapefiles por classe (1=solo, 2=palhada, 3=vegetacao, 4=outros)."""
+        """Dicionário de shapefiles por classe (IDs sequenciais 1..N)."""
         result = {}
-        if self.shape_solo:
-            result[1] = os.path.join(self.data_dir, self.shape_solo)
-        if self.shape_palhada:
-            result[2] = os.path.join(self.data_dir, self.shape_palhada)
-        if self.shape_vegetacao:
-            result[3] = os.path.join(self.data_dir, self.shape_vegetacao)
-        if self.shape_outros:
-            result[4] = os.path.join(self.data_dir, self.shape_outros)
+        for i, item in enumerate(self.shapes_list, start=1):
+            name = item.get("name", f"classe_{i}").strip() or f"classe_{i}"
+            path = item.get("path", "").strip()
+            if path:
+                result[i] = path
         return result
 
     @property
     def class_names(self):
-        return {1: "solo", 2: "palhada", 3: "vegetacao", 4: "outros"}
+        """Nomes das classes (1..N)."""
+        names = {}
+        for i, item in enumerate(self.shapes_list, start=1):
+            name = item.get("name", f"classe_{i}").strip() or f"classe_{i}"
+            names[i] = name
+        return names
 
     @property
     def model_path(self):
@@ -94,27 +100,6 @@ class ClassifierManager:
     def _check_stop(self):
         if self._stop_requested:
             raise InterruptedError("Processamento interrompido pelo usuário.")
-
-    def _find_tiff(self):
-        """Encontra o TIFF mais apropriado (imagemFull.tif preferido)."""
-        full_path = os.path.join(self.config.data_dir, "imagemFull.tif")
-        if os.path.exists(full_path):
-            with rasterio.open(full_path) as src:
-                if src.count >= 3:
-                    return full_path
-
-        tiffs = (glob.glob(os.path.join(self.config.data_dir, "*.tif")) +
-                 glob.glob(os.path.join(self.config.data_dir, "*.tiff")))
-
-        for tiff_path in sorted(tiffs):
-            try:
-                with rasterio.open(tiff_path) as src:
-                    if src.count >= 3:
-                        return tiff_path
-            except Exception:
-                continue
-
-        raise FileNotFoundError(f"Nenhum TIFF RGB encontrado em: {self.config.data_dir}")
 
     def _tiff_info(self, path):
         with rasterio.open(path) as src:
@@ -336,7 +321,7 @@ class ClassifierManager:
         out_meta.update({"count": 1, "dtype": "uint8", "nodata": 0})
 
         os.makedirs(self.config.out_dir, exist_ok=True)
-        pred_path = os.path.join(self.config.out_dir, "classificado.tif")
+        pred_path = self.config.output_tiff
 
         tile_sz = self.config.tile_sz
         n_ty = (H + tile_sz - 1) // tile_sz
@@ -372,7 +357,7 @@ class ClassifierManager:
                             proba = clf.predict_proba(flat[mask])
                             max_prob = proba.max(axis=1)
                             pred_cls = clf.classes_[proba.argmax(axis=1)].astype(np.uint8)
-                            pred_cls[max_prob < self.config.conf_threshold] = 4
+                            pred_cls[max_prob < self.config.conf_threshold] = 0
                             pred_flat[mask] = pred_cls
 
                         dst.write(pred_flat.reshape(th, tw)[np.newaxis], window=win)
@@ -549,9 +534,12 @@ class ClassifierManager:
         self._print("  CLASSIFICADOR DE USO DO SOLO — Random Forest")
         self._print("=" * 60)
 
-        image_path = self._find_tiff()
+        image_path = self.config.input_tiff
+        if not image_path or not os.path.exists(image_path):
+            raise FileNotFoundError(f"TIFF de entrada não encontrado: {image_path}")
         self._print(f"  Imagem : {image_path}")
-        self._print(f"  Saída  : {self.config.out_dir}")
+        self._print(f"  Saída  : {self.config.output_tiff}")
+        self._print(f"  Pasta  : {self.config.out_dir}")
 
         force_retrain = self.config.force_retrain or not os.path.exists(self.config.model_path)
         self._print(f"  Modelo : {'[novo treino]' if force_retrain else '[reutilizando modelo salvo]'}")
@@ -570,7 +558,7 @@ class ClassifierManager:
         self._print("\n" + "=" * 60)
         self._print("  PIPELINE CONCLUÍDO")
         self._print("=" * 60)
-        self._print(f"  TIFF classificado  →  {os.path.join(self.config.out_dir, 'classificado.tif')}")
+        self._print(f"  TIFF classificado  →  {self.config.output_tiff}")
         self._print(f"  Vetores por classe →  {os.path.join(self.config.out_dir, 'vetores')}/classe_<nome>.shp")
         self._print(f"                        {os.path.join(self.config.out_dir, 'vetores')}/classe_<nome>.geojson")
         self._print("")

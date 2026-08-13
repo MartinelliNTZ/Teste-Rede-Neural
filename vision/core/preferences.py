@@ -15,17 +15,18 @@ class Preferences:
 
     # ── Defaults compartilhados (globais) ──────────────────────────────────
     DEFAULTS_COMPARTILHADAS = {
-        "data_dir": "1-AETHERIS_CLASSIFIER_",
-        "out_dir": "1-AETHERIS_CLASSIFIER_output",
+        "input_tiff": "",
+        "output_tiff": "",
     }
 
     # ── Defaults da ferramenta (classificador) ─────────────────────────────
     DEFAULTS_FERRAMENTA = {
-        # Classes / shapefiles
-        "shape_solo": "solo.shp",
-        "shape_palhada": "palhada.shp",
-        "shape_vegetacao": "vegetacao.shp",
-        "shape_outros": "",
+        # Arquivos
+        "input_tiff": "",
+        "output_tiff": "",
+
+        # Shapes dinâmicos: [{"name": "solo", "path": "solo.shp"}, ...]
+        "shapes_list": [],
 
         # Treino
         "samples_per_class": 60000,
@@ -78,6 +79,12 @@ class Preferences:
             if chave != chave.lower():
                 del ferramenta[chave]
 
+        # Migração: remove chaves antigas de shapefiles fixos
+        for chave in ["shape_solo", "shape_palhada", "shape_vegetacao", "shape_outros",
+                      "data_dir", "out_dir"]:
+            if chave in ferramenta:
+                del ferramenta[chave]
+
         for chave, valor in self.DEFAULTS_FERRAMENTA.items():
             ferramenta.setdefault(chave, valor)
 
@@ -85,6 +92,9 @@ class Preferences:
         compartilhadas = self._dados.setdefault("compartilhadas", {})
         for chave in list(compartilhadas.keys()):
             if chave != chave.lower():
+                del compartilhadas[chave]
+        for chave in ["data_dir", "out_dir"]:
+            if chave in compartilhadas:
                 del compartilhadas[chave]
         for chave, valor in self.DEFAULTS_COMPARTILHADAS.items():
             compartilhadas.setdefault(chave, valor)

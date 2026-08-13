@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
     QGroupBox, QLabel, QPushButton, QLineEdit, QDoubleSpinBox,
     QListWidget, QAbstractItemView, QPlainTextEdit, QProgressBar,
     QFrame, QSplitter, QStatusBar, QDialog, QCheckBox, QFileDialog, QSpinBox,
-    QComboBox,
+    QComboBox, QListWidgetItem,
 )
 
 from core.styles import Colors, Styles
@@ -36,6 +36,8 @@ APP_VERSAO = "1.0.0"
 APP_DATA_ATUALIZACAO = "13/08/2026"
 APP_TO = "Palmas - TO"
 APP_EMPRESA = "Linhas Brasil"
+
+MAX_SHAPES = 8
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -204,7 +206,6 @@ class ConsoleWidget(QPlainTextEdit):
         while "\n" in self._pending:
             line, self._pending = self._pending.split("\n", 1)
             self.append_line(line)
-        # Impede buffer infinito
         if len(self._pending) > 4096:
             self.flush_pending()
 
@@ -236,13 +237,11 @@ class HeaderBar(QFrame):
         layout.setContentsMargins(2, 2, 2, 2)
         layout.setSpacing(2)
 
-        # Spinner decorativo
         self.spinner = QLabel("⚙")
         self.spinner.setStyleSheet(f"font-size: 26px; color: {Colors.GOLD};")
         self.spinner.setFixedWidth(34)
         layout.addWidget(self.spinner, 0, Qt.AlignCenter)
 
-        # Título + subtítulo
         title_box = QVBoxLayout()
         title_box.setSpacing(0)
 
@@ -256,7 +255,6 @@ class HeaderBar(QFrame):
 
         layout.addLayout(title_box, 1)
 
-        # Botão informação ⓘ
         self.btn_info = QPushButton("ⓘ")
         self.btn_info.setToolTip("Informações")
         self.btn_info.setFixedSize(32, 32)
@@ -278,13 +276,11 @@ class HeaderBar(QFrame):
         )
         layout.addWidget(self.btn_info, 0, Qt.AlignVCenter)
 
-        # Status
         self.status_label = QLabel("● PRONTO")
         self.status_label.setObjectName("statusLabel")
         self.status_label.setStyleSheet(f"color: {Colors.SUCCESS};")
         layout.addWidget(self.status_label, 0, Qt.AlignVCenter)
 
-        # Animação de pulso no título
         self._pulse_timer = QTimer(self)
         self._pulse_timer.timeout.connect(self._pulse)
         self._pulse_timer.start(1800)
@@ -292,10 +288,7 @@ class HeaderBar(QFrame):
 
     def _pulse(self):
         self._pulse_state = not self._pulse_state
-        if self._pulse_state:
-            color = Colors.GOLD_LIGHT
-        else:
-            color = Colors.GOLD
+        color = Colors.GOLD_LIGHT if self._pulse_state else Colors.GOLD
         self.title_label.setStyleSheet(f"color: {color};")
 
     def set_status(self, text: str, color: str):
@@ -304,135 +297,228 @@ class HeaderBar(QFrame):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PAINEL — PASTAS
+# PAINEL — ARQUIVOS (TIFF entrada + TIFF saída)
 # ─────────────────────────────────────────────────────────────────────────────
 
-class FoldersPanel(QGroupBox):
-    """Painel de seleção de pastas (dados e saída)."""
+class FilesPanel(QGroupBox):
+    """Painel de seleção de arquivos TIFF (entrada e saída)."""
 
     def __init__(self, parent=None):
-        super().__init__("🧭 Pastas de Trabalho", parent)
+        super().__init__("📁 Arquivos TIFF", parent)
         layout = QGridLayout(self)
         layout.setSpacing(2)
 
-        # Pasta de dados
-        layout.addWidget(QLabel("📂 Dados (TIFF + shapefiles):"), 0, 0)
-        self.data_dir_edit = QLineEdit()
-        self.data_dir_edit.setPlaceholderText("1-AETHERIS_CLASSIFIER_")
-        layout.addWidget(self.data_dir_edit, 0, 1)
-        btn_data = QPushButton("📁")
-        btn_data.setObjectName("smallButton")
-        btn_data.setFixedWidth(36)
-        btn_data.setToolTip("Selecionar pasta de dados")
-        btn_data.clicked.connect(self._browse_data)
-        layout.addWidget(btn_data, 0, 2)
+        layout.addWidget(QLabel("🖼️ Entrada (TIFF):"), 0, 0)
+        self.input_edit = QLineEdit()
+        self.input_edit.setPlaceholderText("Selecione o TIFF de entrada…")
+        layout.addWidget(self.input_edit, 0, 1)
+        btn_in = QPushButton("📂")
+        btn_in.setObjectName("smallButton")
+        btn_in.setFixedWidth(36)
+        btn_in.setToolTip("Selecionar TIFF de entrada")
+        btn_in.clicked.connect(self._browse_input)
+        layout.addWidget(btn_in, 0, 2)
 
-        # Pasta de saída
-        layout.addWidget(QLabel("💾 Saída:"), 1, 0)
-        self.out_dir_edit = QLineEdit()
-        self.out_dir_edit.setPlaceholderText("1-AETHERIS_CLASSIFIER_output")
-        layout.addWidget(self.out_dir_edit, 1, 1)
-        btn_out = QPushButton("📁")
+        layout.addWidget(QLabel("💾 Saída (TIFF):"), 1, 0)
+        self.output_edit = QLineEdit()
+        self.output_edit.setPlaceholderText("Selecione onde salvar o TIFF classificado…")
+        layout.addWidget(self.output_edit, 1, 1)
+        btn_out = QPushButton("📂")
         btn_out.setObjectName("smallButton")
         btn_out.setFixedWidth(36)
-        btn_out.setToolTip("Selecionar pasta de saída")
-        btn_out.clicked.connect(self._browse_out)
+        btn_out.setToolTip("Selecionar arquivo de saída")
+        btn_out.clicked.connect(self._browse_output)
         layout.addWidget(btn_out, 1, 2)
 
-    def _browse_data(self):
-        path = QFileDialog.getExistingDirectory(
-            self, "Selecionar pasta de dados", self.data_dir_edit.text() or os.path.abspath(".")
-        )
+    def _browse_input(self):
+        path = QFileDialog.getOpenFileName(
+            self, "Selecionar TIFF de entrada",
+            self.input_edit.text() or os.path.abspath("."),
+            "TIFF (*.tif *.tiff);;Todos (*)",
+        )[0]
         if path:
-            self.data_dir_edit.setText(path)
+            self.input_edit.setText(path)
+            # Sugere saída automática se vazia
+            if not self.output_edit.text().strip():
+                base, ext = os.path.splitext(path)
+                self.output_edit.setText(base + "_classificado.tif")
 
-    def _browse_out(self):
-        path = QFileDialog.getExistingDirectory(
-            self, "Selecionar pasta de saída", self.out_dir_edit.text() or os.path.abspath(".")
-        )
+    def _browse_output(self):
+        path = QFileDialog.getSaveFileName(
+            self, "Salvar TIFF classificado como",
+            self.output_edit.text() or os.path.abspath("."),
+            "TIFF (*.tif *.tiff)",
+        )[0]
         if path:
-            self.out_dir_edit.setText(path)
+            if not path.lower().endswith((".tif", ".tiff")):
+                path += ".tif"
+            self.output_edit.setText(path)
 
-    def get_paths(self):
+    def get_files(self):
         return {
-            "data_dir": self.data_dir_edit.text().strip(),
-            "out_dir": self.out_dir_edit.text().strip(),
+            "input_tiff": self.input_edit.text().strip(),
+            "output_tiff": self.output_edit.text().strip(),
         }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PAINEL — SHAPEFILES POR CLASSE
+# PAINEL — SHAPES DINÂMICOS (até 8, reordenáveis)
 # ─────────────────────────────────────────────────────────────────────────────
 
 class ShapesPanel(QGroupBox):
-    """Painel de seleção dos shapefiles de treino por classe."""
+    """Painel de shapefiles dinâmicos — até 8, com reordenação."""
 
     def __init__(self, parent=None):
-        super().__init__("🗺️ Shapefiles de Treino por Classe", parent)
-        layout = QGridLayout(self)
+        super().__init__("🗺️ Shapefiles de Treino (até 8)", parent)
+        layout = QVBoxLayout(self)
         layout.setSpacing(2)
 
-        layout.addWidget(QLabel("🧱 Solo:"), 0, 0)
-        self.solo_edit = QLineEdit()
-        self.solo_edit.setPlaceholderText("solo.shp")
-        layout.addWidget(self.solo_edit, 0, 1)
-        btn1 = QPushButton("📂")
-        btn1.setObjectName("smallButton")
-        btn1.setFixedWidth(36)
-        btn1.clicked.connect(lambda: self._browse("solo_edit", "Shapefile solo"))
-        layout.addWidget(btn1, 0, 2)
+        # Lista de shapes
+        self.list_widget = QListWidget()
+        self.list_widget.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.list_widget.setMaximumHeight(180)
+        layout.addWidget(self.list_widget, 1)
 
-        layout.addWidget(QLabel("🌾 Palhada:"), 1, 0)
-        self.palhada_edit = QLineEdit()
-        self.palhada_edit.setPlaceholderText("palhada.shp")
-        layout.addWidget(self.palhada_edit, 1, 1)
-        btn2 = QPushButton("📂")
-        btn2.setObjectName("smallButton")
-        btn2.setFixedWidth(36)
-        btn2.clicked.connect(lambda: self._browse("palhada_edit", "Shapefile palhada"))
-        layout.addWidget(btn2, 1, 2)
+        # Botões de ação
+        btns = QHBoxLayout()
+        btns.setSpacing(2)
 
-        layout.addWidget(QLabel("🌳 Vegetação:"), 2, 0)
-        self.veg_edit = QLineEdit()
-        self.veg_edit.setPlaceholderText("vegetacao.shp")
-        layout.addWidget(self.veg_edit, 2, 1)
-        btn3 = QPushButton("📂")
-        btn3.setObjectName("smallButton")
-        btn3.setFixedWidth(36)
-        btn3.clicked.connect(lambda: self._browse("veg_edit", "Shapefile vegetação"))
-        layout.addWidget(btn3, 2, 2)
+        self.btn_add = QPushButton("➕ Adicionar")
+        self.btn_add.setObjectName("smallButton")
+        self.btn_add.clicked.connect(self._add_shape)
+        btns.addWidget(self.btn_add)
 
-        layout.addWidget(QLabel("🧩 Outros:"), 3, 0)
-        self.outros_edit = QLineEdit()
-        self.outros_edit.setPlaceholderText("(opcional)")
-        layout.addWidget(self.outros_edit, 3, 1)
-        btn4 = QPushButton("📂")
-        btn4.setObjectName("smallButton")
-        btn4.setFixedWidth(36)
-        btn4.clicked.connect(lambda: self._browse("outros_edit", "Shapefile outros"))
-        layout.addWidget(btn4, 3, 2)
+        self.btn_add_many = QPushButton("📚 Selecionar vários")
+        self.btn_add_many.setObjectName("smallButton")
+        self.btn_add_many.setToolTip("Seleciona vários shapefiles de uma vez")
+        self.btn_add_many.clicked.connect(self._add_many_shapes)
+        btns.addWidget(self.btn_add_many)
 
-    def _browse(self, attr: str, desc: str):
-        """Abre diálogo de seleção e preenche o QLineEdit do atributo dado."""
-        edit_widget = getattr(self, attr, None)
-        if edit_widget is None:
+        self.btn_remove = QPushButton("🗑️ Remover")
+        self.btn_remove.setObjectName("smallButton")
+        self.btn_remove.clicked.connect(self._remove_shape)
+        btns.addWidget(self.btn_remove)
+
+        self.btn_up = QPushButton("⬆️")
+        self.btn_up.setObjectName("smallButton")
+        self.btn_up.setToolTip("Mover para cima")
+        self.btn_up.clicked.connect(self._move_up)
+        btns.addWidget(self.btn_up)
+
+        self.btn_down = QPushButton("⬇️")
+        self.btn_down.setObjectName("smallButton")
+        self.btn_down.setToolTip("Mover para baixo")
+        self.btn_down.clicked.connect(self._move_down)
+        btns.addWidget(self.btn_down)
+
+        self.btn_clear = QPushButton("🧹 Limpar")
+        self.btn_clear.setObjectName("smallButton")
+        self.btn_clear.clicked.connect(self._clear_shapes)
+        btns.addWidget(self.btn_clear)
+
+        btns.addStretch(1)
+        layout.addLayout(btns)
+
+        # Dica
+        hint = QLabel("💡 Clique 2x em um item para renomear a classe.")
+        hint.setStyleSheet(f"color: {Colors.TEXT_DIM}; font-size: 11px;")
+        layout.addWidget(hint)
+
+        self.list_widget.itemDoubleClicked.connect(self._rename_shape)
+
+    # ── Internos ────────────────────────────────────────────────────────────
+
+    def _add_shape(self):
+        if self.list_widget.count() >= MAX_SHAPES:
             return
-        current = edit_widget.text().strip()
-        initial = os.path.join(os.path.dirname(current), "") if current else os.path.abspath(".")
         path = QFileDialog.getOpenFileName(
-            self, f"Selecionar shapefile {desc}", initial,
+            self, "Selecionar shapefile", os.path.abspath("."),
             "Shapefiles (*.shp);;Todos (*)",
         )[0]
         if path:
-            edit_widget.setText(path)
+            self._append_item(path)
 
-    def get_shapes(self):
-        return {
-            "shape_solo": os.path.basename(self.solo_edit.text().strip()),
-            "shape_palhada": os.path.basename(self.palhada_edit.text().strip()),
-            "shape_vegetacao": os.path.basename(self.veg_edit.text().strip()),
-            "shape_outros": os.path.basename(self.outros_edit.text().strip()),
-        }
+    def _add_many_shapes(self):
+        """Seleciona vários shapefiles de uma vez."""
+        remaining = MAX_SHAPES - self.list_widget.count()
+        if remaining <= 0:
+            return
+        paths = QFileDialog.getOpenFileNames(
+            self, "Selecionar shapefiles (vários)", os.path.abspath("."),
+            "Shapefiles (*.shp);;Todos (*)",
+        )[0]
+        for path in paths[:remaining]:
+            self._append_item(path)
+
+    def _append_item(self, path: str):
+        name = os.path.splitext(os.path.basename(path))[0]
+        item = QListWidgetItem(f"{name}  →  {path}")
+        item.setData(Qt.UserRole, {"name": name, "path": path})
+        self.list_widget.addItem(item)
+
+    def _remove_shape(self):
+        row = self.list_widget.currentRow()
+        if row >= 0:
+            self.list_widget.takeItem(row)
+
+    def _move_up(self):
+        row = self.list_widget.currentRow()
+        if row > 0:
+            item = self.list_widget.takeItem(row)
+            self.list_widget.insertItem(row - 1, item)
+            self.list_widget.setCurrentRow(row - 1)
+
+    def _move_down(self):
+        row = self.list_widget.currentRow()
+        if 0 <= row < self.list_widget.count() - 1:
+            item = self.list_widget.takeItem(row)
+            self.list_widget.insertItem(row + 1, item)
+            self.list_widget.setCurrentRow(row + 1)
+
+    def _clear_shapes(self):
+        self.list_widget.clear()
+
+    def _rename_shape(self, item: QListWidgetItem):
+        """Renomeia a classe do shapefile (duplo clique)."""
+        from PySide6.QtWidgets import QInputDialog
+        data = item.data(Qt.UserRole)
+        if not data:
+            return
+        novo_nome, ok = QInputDialog.getText(
+            self, "Renomear classe",
+            "Nome da classe:",
+            text=data["name"],
+        )
+        if ok and novo_nome.strip():
+            data["name"] = novo_nome.strip()
+            item.setData(Qt.UserRole, data)
+            item.setText(f"{data['name']}  →  {data['path']}")
+
+    # ── API ─────────────────────────────────────────────────────────────────
+
+    def get_shapes_list(self) -> list:
+        """Retorna lista de dicts [{"name": ..., "path": ...}] na ordem atual."""
+        result = []
+        for i in range(self.list_widget.count()):
+            item = self.list_widget.item(i)
+            data = item.data(Qt.UserRole)
+            if data and data.get("path"):
+                result.append({
+                    "name": data.get("name", f"classe_{i+1}"),
+                    "path": data["path"],
+                })
+        return result
+
+    def set_shapes_list(self, shapes_list: list):
+        """Preenche a lista a partir de uma lista de dicts."""
+        self.list_widget.clear()
+        for item_data in shapes_list:
+            name = item_data.get("name", "classe")
+            path = item_data.get("path", "")
+            if path:
+                item = QListWidgetItem(f"{name}  →  {path}")
+                item.setData(Qt.UserRole, {"name": name, "path": path})
+                self.list_widget.addItem(item)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -507,7 +593,7 @@ class ProcessPanel(QGroupBox):
         self.conf_spin.setSingleStep(0.05)
         self.conf_spin.setDecimals(2)
         self.conf_spin.setValue(0.45)
-        self.conf_spin.setToolTip("Abaixo disso → classe 'outros'")
+        self.conf_spin.setToolTip("Abaixo disso → sem classe (0)")
         layout.addWidget(self.conf_spin, 1, 1)
 
         layout.addWidget(QLabel("Área mínima (m²):"), 2, 0)
@@ -622,7 +708,6 @@ class MainWindow(QMainWindow):
         self._worker = None
         self._worker_thread = None
         self._start_time = 0.0
-        self._progress_last_pct = -1.0
 
         self._setup_ui()
         self._setup_console_redirect()
@@ -642,12 +727,10 @@ class MainWindow(QMainWindow):
         root.setContentsMargins(2, 2, 2, 2)
         root.setSpacing(2)
 
-        # Header
         self.header = HeaderBar(self)
         self.header.btn_info.clicked.connect(self._on_info_clicked)
         root.addWidget(self.header)
 
-        # Barra de progresso
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
@@ -655,7 +738,6 @@ class MainWindow(QMainWindow):
         self.progress_bar.setFormat("%p%")
         root.addWidget(self.progress_bar)
 
-        # Splitter: configurações | console
         splitter = QSplitter(Qt.Horizontal)
         root.addWidget(splitter, 1)
 
@@ -665,8 +747,8 @@ class MainWindow(QMainWindow):
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(2)
 
-        self.folders_panel = FoldersPanel(left)
-        left_layout.addWidget(self.folders_panel)
+        self.files_panel = FilesPanel(left)
+        left_layout.addWidget(self.files_panel)
 
         self.shapes_panel = ShapesPanel(left)
         left_layout.addWidget(self.shapes_panel)
@@ -677,7 +759,6 @@ class MainWindow(QMainWindow):
         self.process_panel = ProcessPanel(left)
         left_layout.addWidget(self.process_panel)
 
-        # Botões de ação
         btn_layout = QHBoxLayout()
         self.btn_process = QPushButton("🚀 PROCESSAR")
         self.btn_process.setObjectName("primaryButton")
@@ -751,15 +832,11 @@ class MainWindow(QMainWindow):
 
     def _setup_signals(self):
         """Conecta todos os widgets de preferência ao salvamento."""
-        for panel_widget in [
-            self.folders_panel.data_dir_edit,
-            self.folders_panel.out_dir_edit,
-            self.shapes_panel.solo_edit,
-            self.shapes_panel.palhada_edit,
-            self.shapes_panel.veg_edit,
-            self.shapes_panel.outros_edit,
+        for widget in [
+            self.files_panel.input_edit,
+            self.files_panel.output_edit,
         ]:
-            panel_widget.textChanged.connect(self._on_pref_changed)
+            widget.textChanged.connect(self._on_pref_changed)
 
         for spin in [
             self.train_panel.samples_spin,
@@ -780,24 +857,25 @@ class MainWindow(QMainWindow):
         self.train_panel.jobs_combo.currentIndexChanged.connect(self._on_pref_changed)
         self.process_panel.retrain_check.toggled.connect(self._on_pref_changed)
 
+        # Shapes — salva quando a lista muda
+        self.shapes_panel.list_widget.model().rowsInserted.connect(self._on_pref_changed)
+        self.shapes_panel.list_widget.model().rowsRemoved.connect(self._on_pref_changed)
+        self.shapes_panel.list_widget.model().dataChanged.connect(self._on_pref_changed)
+
     # ── Preferências ────────────────────────────────────────────────────────
 
     def _on_pref_changed(self):
         self.prefs.set_muitos({
-            **self.folders_panel.get_paths(),
-            **self.shapes_panel.get_shapes(),
+            **self.files_panel.get_files(),
+            "shapes_list": self.shapes_panel.get_shapes_list(),
             **self.train_panel.get_train(),
             **self.process_panel.get_process(),
         })
 
     def _carregar_preferencias(self):
         widgets = [
-            self.folders_panel.data_dir_edit,
-            self.folders_panel.out_dir_edit,
-            self.shapes_panel.solo_edit,
-            self.shapes_panel.palhada_edit,
-            self.shapes_panel.veg_edit,
-            self.shapes_panel.outros_edit,
+            self.files_panel.input_edit,
+            self.files_panel.output_edit,
             self.train_panel.samples_spin,
             self.train_panel.trees_spin,
             self.train_panel.jobs_combo,
@@ -812,16 +890,8 @@ class MainWindow(QMainWindow):
         for w in widgets:
             w.blockSignals(True)
         try:
-            self.folders_panel.data_dir_edit.setText(
-                self.prefs.get("data_dir", "1-AETHERIS_CLASSIFIER_")
-            )
-            self.folders_panel.out_dir_edit.setText(
-                self.prefs.get("out_dir", "1-AETHERIS_CLASSIFIER_output")
-            )
-            self.shapes_panel.solo_edit.setText(self.prefs.get("shape_solo", "solo.shp"))
-            self.shapes_panel.palhada_edit.setText(self.prefs.get("shape_palhada", "palhada.shp"))
-            self.shapes_panel.veg_edit.setText(self.prefs.get("shape_vegetacao", "vegetacao.shp"))
-            self.shapes_panel.outros_edit.setText(self.prefs.get("shape_outros", ""))
+            self.files_panel.input_edit.setText(self.prefs.get("input_tiff", ""))
+            self.files_panel.output_edit.setText(self.prefs.get("output_tiff", ""))
 
             self.train_panel.samples_spin.setValue(self.prefs.get("samples_per_class", 60000))
             self.train_panel.trees_spin.setValue(self.prefs.get("rf_n_trees", 200))
@@ -837,13 +907,16 @@ class MainWindow(QMainWindow):
             self.process_panel.hole_spin.setValue(self.prefs.get("hole_area_m2", 5.0))
             self.process_panel.buffer_spin.setValue(self.prefs.get("buffer_m", 0.1))
             self.process_panel.retrain_check.setChecked(self.prefs.get("force_retrain", False))
+
+            # Shapes
+            self.shapes_panel.set_shapes_list(self.prefs.get("shapes_list", []))
         finally:
             for w in widgets:
                 w.blockSignals(False)
 
         self.prefs.set_muitos({
-            **self.folders_panel.get_paths(),
-            **self.shapes_panel.get_shapes(),
+            **self.files_panel.get_files(),
+            "shapes_list": self.shapes_panel.get_shapes_list(),
             **self.train_panel.get_train(),
             **self.process_panel.get_process(),
         })
@@ -862,24 +935,38 @@ class MainWindow(QMainWindow):
     def _build_config(self) -> ClassifierConfig:
         """Monta a configuração a partir dos painéis."""
         params = {
-            **self.folders_panel.get_paths(),
-            **self.shapes_panel.get_shapes(),
+            **self.files_panel.get_files(),
+            "shapes_list": self.shapes_panel.get_shapes_list(),
             **self.train_panel.get_train(),
             **self.process_panel.get_process(),
         }
         return ClassifierConfig(**params)
 
     def _on_process_clicked(self):
-        # Validação
         params = {
-            **self.folders_panel.get_paths(),
-            **self.shapes_panel.get_shapes(),
+            **self.files_panel.get_files(),
+            "shapes_list": self.shapes_panel.get_shapes_list(),
             **self.train_panel.get_train(),
             **self.process_panel.get_process(),
         }
-        data_dir = params["data_dir"]
-        if not data_dir or not os.path.isdir(data_dir):
-            msg = "❌ Pasta de dados inválida ou inexistente."
+
+        # Validação
+        if not params["input_tiff"] or not os.path.exists(params["input_tiff"]):
+            msg = "❌ TIFF de entrada inválido ou inexistente."
+            self.console.write_stream(f"[{self._ts()}] {msg}\n")
+            self.header.set_status("ERRO", Colors.ERROR)
+            self.statusBar().showMessage(msg, 4000)
+            return
+
+        if not params["output_tiff"]:
+            msg = "❌ Informe o arquivo TIFF de saída."
+            self.console.write_stream(f"[{self._ts()}] {msg}\n")
+            self.header.set_status("ERRO", Colors.ERROR)
+            self.statusBar().showMessage(msg, 4000)
+            return
+
+        if not params["shapes_list"]:
+            msg = "❌ Adicione pelo menos 1 shapefile de treino."
             self.console.write_stream(f"[{self._ts()}] {msg}\n")
             self.header.set_status("ERRO", Colors.ERROR)
             self.statusBar().showMessage(msg, 4000)
@@ -889,7 +976,6 @@ class MainWindow(QMainWindow):
 
         self._setup_worker(config)
         self._start_time = time.time()
-        self._progress_last_update = -1.0
 
         self.progress_bar.setValue(0)
         self.progress_bar.setFormat("%p%")
@@ -965,7 +1051,7 @@ class MainWindow(QMainWindow):
         else:
             format_text = f"{msg} | Tempo decorrido: {self._format_time_hms(elapsed)}"
 
-        self.progress_bar.setFormat(format_text if len(format_text) < 300 else format_text)
+        self.progress_bar.setFormat(format_text)
 
     def _on_worker_finished(self, success: bool, message: str):
         elapsed = time.time() - self._start_time
@@ -975,8 +1061,6 @@ class MainWindow(QMainWindow):
             f"{'✅' if success else '❌'} {message} | "
             f"Tempo total: {self._format_time_hms(elapsed)}"
         )
-        if not success:
-            self.progress_bar.setValue(self.progress_bar.value())
         self.progress_bar.setVisible(True)
 
         if success:
