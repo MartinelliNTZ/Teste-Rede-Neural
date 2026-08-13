@@ -555,7 +555,7 @@ class ClassifierManager:
         pred_path = self.predict(clf, image_path)
         self.vectorize(pred_path)
 
-        self._print("\n" + "=" * 60)
+        self._print("\n" + "=" * 3)
         self._print("  PIPELINE CONCLUÍDO")
         self._print("=" * 60)
         self._print(f"  TIFF classificado  →  {self.config.output_tiff}")
