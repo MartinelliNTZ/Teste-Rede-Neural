@@ -45,17 +45,17 @@ class Styles:
         QGroupBox {{
             background-color: {Colors.PANEL};
             border: 1px solid {Colors.BORDER};
-            border-radius: 8px;
-            margin-top: 12px;
-            padding: 10px;
+            border-radius: 6px;
+            margin-top: 8px;
+            padding: 2px;
             font-weight: 600;
             color: {Colors.GOLD};
         }}
 
         QGroupBox::title {{
             subcontrol-origin: margin;
-            left: 12px;
-            padding: 0 4px;
+            left: 8px;
+            padding: 0 2px;
         }}
 
         QLabel {{
@@ -82,8 +82,8 @@ class Styles:
             background-color: {Colors.PANEL};
             color: {Colors.TEXT};
             border: 1px solid {Colors.BORDER};
-            border-radius: 6px;
-            padding: 6px 14px;
+            border-radius: 4px;
+            padding: 2px 8px;
             font-weight: 600;
         }}
 
@@ -105,10 +105,10 @@ class Styles:
             background-color: {Colors.GOLD};
             color: #000;
             border: none;
-            border-radius: 6px;
+            border-radius: 4px;
             font-weight: 700;
             font-size: 14px;
-            padding: 10px 20px;
+            padding: 2px 12px;
         }}
 
         QPushButton#primaryButton:hover {{
@@ -124,7 +124,7 @@ class Styles:
             background-color: transparent;
             color: {Colors.ERROR};
             border: 1px solid {Colors.ERROR};
-            border-radius: 6px;
+            border-radius: 4px;
         }}
 
         QPushButton#dangerButton:hover {{
@@ -133,7 +133,7 @@ class Styles:
         }}
 
         QPushButton#smallButton {{
-            padding: 3px 10px;
+            padding: 2px 6px;
             font-size: 12px;
         }}
 
@@ -141,9 +141,9 @@ class Styles:
             background-color: {Colors.BLACK_SOFT};
             color: {Colors.TEXT};
             border: 1px solid {Colors.BORDER};
-            border-radius: 4px;
-            padding: 4px 8px;
-            min-height: 22px;
+            border-radius: 3px;
+            padding: 2px 4px;
+            min-height: 20px;
         }}
 
         QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {{
@@ -166,13 +166,13 @@ class Styles:
             background-color: {Colors.BLACK_SOFT};
             color: {Colors.TEXT};
             border: 1px solid {Colors.BORDER};
-            border-radius: 4px;
-            padding: 4px;
+            border-radius: 3px;
+            padding: 2px;
         }}
 
         QListWidget::item {{
-            padding: 4px 6px;
-            border-radius: 3px;
+            padding: 2px 4px;
+            border-radius: 2px;
         }}
 
         QListWidget::item:selected {{
@@ -187,26 +187,26 @@ class Styles:
         QPlainTextEdit#consoleWidget {{
             background-color: {Colors.BLACK_SOFT};
             border: 1px solid {Colors.BORDER};
-            border-radius: 6px;
+            border-radius: 4px;
             font-family: 'Consolas', 'Courier New', monospace;
             font-size: 12px;
             color: {Colors.TEXT};
-            padding: 6px;
+            padding: 2px;
         }}
 
         QProgressBar {{
             background-color: {Colors.BLACK_SOFT};
             border: 1px solid {Colors.BORDER};
-            border-radius: 6px;
+            border-radius: 4px;
             text-align: center;
             color: {Colors.TEXT};
             font-weight: 600;
-            min-height: 22px;
+            min-height: 20px;
         }}
 
         QProgressBar::chunk {{
             background-color: {Colors.GOLD};
-            border-radius: 5px;
+            border-radius: 3px;
         }}
 
         QFrame#headerBar {{
@@ -292,7 +292,7 @@ class Styles:
             background-color: {Colors.PANEL};
             color: {Colors.TEXT};
             border: 1px solid {Colors.GOLD_DIM};
-            padding: 4px 8px;
-            border-radius: 4px;
+            padding: 2px 4px;
+            border-radius: 3px;
         }}
         """

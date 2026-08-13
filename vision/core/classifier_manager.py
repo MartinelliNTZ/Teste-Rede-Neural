@@ -415,7 +415,7 @@ class ClassifierManager:
             n = int((data == cid).sum())
             pct = 100 * n / max(total_px, 1)
             self._print(f"    {cname:10s}: {n:>12,} px  ({pct:5.1f}%)")
-        self._print()
+        self._print("")
 
         struct = np.ones((3, 3), dtype=bool)
 
@@ -573,7 +573,7 @@ class ClassifierManager:
         self._print(f"  TIFF classificado  →  {os.path.join(self.config.out_dir, 'classificado.tif')}")
         self._print(f"  Vetores por classe →  {os.path.join(self.config.out_dir, 'vetores')}/classe_<nome>.shp")
         self._print(f"                        {os.path.join(self.config.out_dir, 'vetores')}/classe_<nome>.geojson")
-        self._print()
+        self._print("")
         self._print("  Configurações aplicadas:")
         self._print(f"  • Polígonos menores que {self.config.min_area_m2} m² → REMOVIDOS")
         self._print(f"  • Buracos internos menores que {self.config.hole_area_m2} m² → PREENCHIDOS")

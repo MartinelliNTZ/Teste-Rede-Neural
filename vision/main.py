@@ -233,8 +233,8 @@ class HeaderBar(QFrame):
         self.setFixedHeight(78)
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(16, 8, 16, 8)
-        layout.setSpacing(12)
+        layout.setContentsMargins(2, 2, 2, 2)
+        layout.setSpacing(2)
 
         # Spinner decorativo
         self.spinner = QLabel("⚙")
@@ -313,7 +313,7 @@ class FoldersPanel(QGroupBox):
     def __init__(self, parent=None):
         super().__init__("🧭 Pastas de Trabalho", parent)
         layout = QGridLayout(self)
-        layout.setSpacing(8)
+        layout.setSpacing(2)
 
         # Pasta de dados
         layout.addWidget(QLabel("📂 Dados (TIFF + shapefiles):"), 0, 0)
@@ -370,7 +370,7 @@ class ShapesPanel(QGroupBox):
     def __init__(self, parent=None):
         super().__init__("🗺️ Shapefiles de Treino por Classe", parent)
         layout = QGridLayout(self)
-        layout.setSpacing(8)
+        layout.setSpacing(2)
 
         layout.addWidget(QLabel("🧱 Solo:"), 0, 0)
         self.solo_edit = QLineEdit()
@@ -445,7 +445,7 @@ class TrainPanel(QGroupBox):
     def __init__(self, parent=None):
         super().__init__("🎓 Parâmetros de Treino", parent)
         layout = QGridLayout(self)
-        layout.setSpacing(8)
+        layout.setSpacing(2)
 
         layout.addWidget(QLabel("Amostras por classe:"), 0, 0)
         self.samples_spin = QSpinBox()
@@ -491,7 +491,7 @@ class ProcessPanel(QGroupBox):
     def __init__(self, parent=None):
         super().__init__("🔧 Predição & Vetorização", parent)
         layout = QGridLayout(self)
-        layout.setSpacing(8)
+        layout.setSpacing(2)
 
         layout.addWidget(QLabel("Tamanho do tile (px):"), 0, 0)
         self.tile_spin = QSpinBox()
@@ -639,8 +639,8 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
 
         root = QVBoxLayout(central)
-        root.setContentsMargins(10, 10, 10, 10)
-        root.setSpacing(10)
+        root.setContentsMargins(2, 2, 2, 2)
+        root.setSpacing(2)
 
         # Header
         self.header = HeaderBar(self)
@@ -663,7 +663,7 @@ class MainWindow(QMainWindow):
         left = QWidget()
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins(0, 0, 0, 0)
-        left_layout.setSpacing(10)
+        left_layout.setSpacing(2)
 
         self.folders_panel = FoldersPanel(left)
         left_layout.addWidget(self.folders_panel)
@@ -701,7 +701,7 @@ class MainWindow(QMainWindow):
         right = QWidget()
         right_layout = QVBoxLayout(right)
         right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.setSpacing(8)
+        right_layout.setSpacing(2)
 
         self.console = ConsoleWidget(right)
         right_layout.addWidget(self.console, 1)
