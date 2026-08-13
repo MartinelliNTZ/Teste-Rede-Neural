@@ -41,18 +41,19 @@ warnings.filterwarnings("ignore")
 # ─────────────────────────────────────────────────────────────────────────────
 
 ROOT     = os.path.abspath(".")
-DATA_DIR = os.path.join(ROOT, "imaru2")
-OUT_DIR  = os.path.join(ROOT, "saida_v10_imaru3")
+DATA_DIR = os.path.join(ROOT, "1-AETHERIS_CLASSIFIER_")
+OUT_DIR  = os.path.join(ROOT, "1-AETHERIS_CLASSIFIER_output")
 
 SHAPES = {
     #1: os.path.join(DATA_DIR, "palhada.shp"),
     1: os.path.join(DATA_DIR, "solo.shp"),
-    2: os.path.join(DATA_DIR, "floresta.shp"),
+    2: os.path.join(DATA_DIR, "palhada.shp"),
+    3: os.path.join(DATA_DIR, "vegetacao.shp"),
     # Para adicionar a classe "outros" com shapefile próprio:
     # 4: os.path.join(DATA_DIR, "outros.shp"),
 }
 
-CLASS_NAMES  = {1: "solo", 2: "floresta", 3: "outros"}
+CLASS_NAMES  = {1: "solo", 2: "palhada", 3: "vegetacao", 4: "outros"}
 
 # Treino
 SAMPLES_PER_CLASS = 60_000   # pixels de treino por classe (balanceado)
@@ -67,7 +68,7 @@ CONF_THRESHOLD    = 0.45     # confiança mínima para 1/2/3; abaixo → "outros
 MIN_AREA_M2       = 5.0      # ÁREA MÍNIMA: 5 m² - polígonos e buracos menores que isso são eliminados
 SMOOTH_ITER       = 2        # iterações de abertura/fechamento morfológico
 HOLE_AREA_M2      = 5.0      # Buracos internos menores que 5 m² são preenchidos
-
+BUFFER_M        = 0.1
 # ─────────────────────────────────────────────────────────────────────────────
 # CONSTANTES INTERNAS
 # ─────────────────────────────────────────────────────────────────────────────
@@ -81,11 +82,31 @@ os.makedirs(OUT_DIR, exist_ok=True)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def find_tiff():
+    """
+    Encontra o TIFF mais apropriado:
+    1. Prefere imagemFull.tif (contém RGB+Alpha)
+    2. Senão, procura qualquer *.tif com múltiplas bandas
+    """
+    # Prioritário: procura imagemFull.tif
+    full_path = os.path.join(DATA_DIR, "imagemFull.tif")
+    if os.path.exists(full_path):
+        with rasterio.open(full_path) as src:
+            if src.count >= 3:  # RGB ou RGB+Alpha
+                return full_path
+    
+    # Fallback: procura qualquer TIFF com 3+ bandas
     tiffs = (glob.glob(os.path.join(DATA_DIR, "*.tif")) +
              glob.glob(os.path.join(DATA_DIR, "*.tiff")))
-    if not tiffs:
-        raise FileNotFoundError(f"Nenhum TIFF encontrado em: {DATA_DIR}")
-    return tiffs[0]
+    
+    for tiff_path in sorted(tiffs):
+        try:
+            with rasterio.open(tiff_path) as src:
+                if src.count >= 3:
+                    return tiff_path
+        except:
+            continue
+    
+    raise FileNotFoundError(f"Nenhum TIFF RGB encontrado em: {DATA_DIR}")
 
 def tiff_info(path):
     with rasterio.open(path) as src:
@@ -100,12 +121,24 @@ def load_geoms(shp_path, tiff_crs):
     with fiona.open(shp_path) as f:
         shp_crs = CRS.from_user_input(f.crs)
         reproj  = not shp_crs.equals(tiff_crs, ignore_axis_order=True)
+        
+        # Detecta tipo de geometria para aplicar buffer se for Point
+        is_point = f.schema['geometry'] == 'Point'
+        
         for feat in f:
             raw = feat.get("geometry")
             if raw is None:
                 continue
             try:
-                g = shape(raw).buffer(0)
+                g = shape(raw)
+                
+                # Se é ponto, aplica buffer ANTES de limpar (converte para polígono circular)
+                if is_point:
+                    g = g.buffer(BUFFER_M)
+                
+                # Depois limpa a geometria
+                g = g.buffer(0)
+                    
             except Exception:
                 continue
             if g.is_empty or not g.is_valid:
@@ -200,6 +233,15 @@ def train(image_path):
     res_m = abs(transform.a)
     print(f"  TIFF : {H:,} × {W:,} px  |  resolução ≈ {res_m*100:.1f} cm/px")
 
+    # Verifica número de bandas
+    with rasterio.open(image_path) as src:
+        bands_available = src.count
+    
+    if bands_available < 3:
+        print(f"  [ERRO] Esperado mínimo 3 bandas (RGB), mas encontrado apenas {bands_available}.")
+        print(f"  Verifique: a imagem tem α (alpha/máscara)?")
+        raise ValueError(f"Imagem deve ter pelo menos 3 bandas (RGB), tem {bands_available}")
+
     # ── Rasteriza todos os shapefiles em um único raster de labels ──────────
     label_raster = np.zeros((H, W), dtype=np.uint8)
     for cid, shp_path in SHAPES.items():
@@ -207,10 +249,20 @@ def train(image_path):
         if not os.path.exists(shp_path):
             print(f"  [AVISO] {shp_path} não encontrado, pulando.")
             continue
+        
+        # Verifica tipo de geometria
+        with fiona.open(shp_path) as f:
+            geom_type = f.schema['geometry']
+        
         geoms = load_geoms(shp_path, tiff_crs)
         if not geoms:
             print(f"  [AVISO] Nenhuma geometria válida em {cname}.")
             continue
+        
+        # Informa se buffer foi aplicado
+        if geom_type == 'Point':
+            print(f"  {cname}: geometria PONTO detectada → aplicando buffer de {BUFFER_M}m")
+        
         burned = rasterize(
             [(g, cid) for g in geoms],
             out_shape=(H, W),
