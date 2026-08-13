@@ -277,7 +277,7 @@ class ClassifierManager:
         y = np.concatenate(y_all)
         self._print(f"\n  Total: {len(X):,} amostras | {len(np.unique(y))} classes")
 
-        self._print("\n─" * 60)
+        self._print("\n─" * 3)
         self._print("ETAPA 2: TREINO DO RANDOM FOREST")
         self._print("─" * 60)
 
@@ -308,8 +308,84 @@ class ClassifierManager:
 
     # ── Etapa 2: Predição ──────────────────────────────────────────────────
 
+    # Tamanho máximo de lote para predição (pixels) — evita estouro de memória
+    _PRED_BATCH = 250_000
+    # Número máximo de tentativas por tile antes de desistir
+    _MAX_TILE_RETRIES = 3
+
+    def _predict_batch(self, clf, X):
+        """Prediz um lote de amostras, dividindo em sub-lotes para evitar estouro de memória."""
+        n = len(X)
+        if n == 0:
+            return np.zeros(0, dtype=np.uint8), np.zeros(0, dtype=np.float32)
+
+        preds = np.zeros(n, dtype=np.uint8)
+        confs = np.zeros(n, dtype=np.float32)
+
+        for start in range(0, n, self._PRED_BATCH):
+            end = min(start + self._PRED_BATCH, n)
+            X_batch = X[start:end]
+            proba = clf.predict_proba(X_batch)
+            max_prob = proba.max(axis=1)
+            pred_cls = clf.classes_[proba.argmax(axis=1)].astype(np.uint8)
+            pred_cls[max_prob < self.config.conf_threshold] = 0
+            preds[start:end] = pred_cls
+            confs[start:end] = max_prob
+
+        return preds, confs
+
+    def _predict_tile(self, clf, src, win, has_alpha):
+        """Prediz um tile inteiro com retry e sub-lotes. Retorna (pred_flat, erro)."""
+        import gc
+
+        th = win.height
+        tw = win.width
+
+        # Lê o tile
+        raw = src.read([1, 2, 3], window=win).astype(np.float32) / 255.0
+        rgb = np.moveaxis(raw, 0, -1)
+
+        alpha_valid = (src.read(4, window=win) > 0
+                       if has_alpha
+                       else np.ones((th, tw), dtype=bool))
+
+        ft = self._compute_features(rgb)
+        flat = ft.reshape(-1, ft.shape[-1])
+        mask = alpha_valid.ravel()
+
+        pred_flat = np.zeros(th * tw, dtype=np.uint8)
+
+        if mask.sum() == 0:
+            return pred_flat, None
+
+        # Tenta com retry
+        last_err = None
+        for attempt in range(1, self._MAX_TILE_RETRIES + 1):
+            try:
+                preds, _ = self._predict_batch(clf, flat[mask])
+                pred_flat[mask] = preds
+                return pred_flat, None
+            except (MemoryError, np._core._exceptions._ArrayMemoryError) as e:
+                last_err = e
+                gc.collect()
+                if attempt < self._MAX_TILE_RETRIES:
+                    # Tenta com lote menor
+                    self._PRED_BATCH = max(10_000, self._PRED_BATCH // 2)
+                    self._print(f"    ⚠️ Memória baixa, tentando com lote menor ({self._PRED_BATCH} px)…")
+            except Exception as e:
+                last_err = e
+                gc.collect()
+                if attempt < self._MAX_TILE_RETRIES:
+                    self._print(f"    ⚠️ Erro no tile, tentativa {attempt}/{self._MAX_TILE_RETRIES}: {e}")
+                else:
+                    break
+
+        return pred_flat, last_err
+
     def predict(self, clf, image_path):
-        self._print("\n─" * 60)
+        import gc
+
+        self._print("\n─" * 3)
         self._print("ETAPA 3: PREDIÇÃO EM TODA A IMAGEM")
         self._print("─" * 60)
 
@@ -328,6 +404,7 @@ class ClassifierManager:
         n_tx = (W + tile_sz - 1) // tile_sz
         total_tiles = n_ty * n_tx
         done = 0
+        failed_tiles = []
 
         with rasterio.open(image_path) as src:
             has_alpha = src.count >= 4
@@ -341,24 +418,14 @@ class ClassifierManager:
                         tw = min(tile_sz, W - x0)
                         win = Window(x0, y0, tw, th)
 
-                        raw = src.read([1, 2, 3], window=win).astype(np.float32) / 255.0
-                        rgb = np.moveaxis(raw, 0, -1)
+                        # Prediz o tile com retry
+                        pred_flat, err = self._predict_tile(clf, src, win, has_alpha)
 
-                        alpha_valid = (src.read(4, window=win) > 0
-                                       if has_alpha
-                                       else np.ones((th, tw), dtype=bool))
-
-                        ft = self._compute_features(rgb)
-                        flat = ft.reshape(-1, ft.shape[-1])
-                        mask = alpha_valid.ravel()
-
-                        pred_flat = np.zeros(th * tw, dtype=np.uint8)
-                        if mask.sum() > 0:
-                            proba = clf.predict_proba(flat[mask])
-                            max_prob = proba.max(axis=1)
-                            pred_cls = clf.classes_[proba.argmax(axis=1)].astype(np.uint8)
-                            pred_cls[max_prob < self.config.conf_threshold] = 0
-                            pred_flat[mask] = pred_cls
+                        if err is not None:
+                            failed_tiles.append((tx, ty, str(err)))
+                            self._print(f"    ❌ Falha no tile ({tx},{ty}): {err}")
+                            # Escreve tile vazio (0) para não quebrar o fluxo
+                            pred_flat = np.zeros(th * tw, dtype=np.uint8)
 
                         dst.write(pred_flat.reshape(th, tw)[np.newaxis], window=win)
 
@@ -368,13 +435,24 @@ class ClassifierManager:
                         if done == total_tiles or done % max(1, total_tiles // 20) == 0:
                             self._print(f"  [{pct:5.1f}%] ({done}/{total_tiles} tiles)")
 
+                        # Libera memória periodicamente
+                        if done % 4 == 0:
+                            gc.collect()
+
+        if failed_tiles:
+            self._print(f"\n  ⚠️ {len(failed_tiles)} tile(s) com falha (preenchidos com 0):")
+            for tx, ty, err in failed_tiles[:10]:
+                self._print(f"    - Tile ({tx},{ty}): {err}")
+            if len(failed_tiles) > 10:
+                self._print(f"    … e mais {len(failed_tiles) - 10} tile(s)")
+
         self._print(f"\n  Salvo: {pred_path}")
         return pred_path
 
     # ── Etapa 3: Vetorização ───────────────────────────────────────────────
 
     def vectorize(self, pred_path):
-        self._print("\n─" * 60)
+        self._print("\n─" * 3)
         self._print("ETAPA 4: VETORIZAÇÃO + LIMPEZA MORFOLÓGICA")
         self._print("─" * 60)
 

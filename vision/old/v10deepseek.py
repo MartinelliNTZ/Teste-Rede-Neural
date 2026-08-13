@@ -274,7 +274,7 @@ def train(image_path):
     y = np.concatenate(y_all)
     print(f"\n  Total: {len(X):,} amostras | {len(np.unique(y))} classes")
 
-    print("\n─" * 60)
+    print("\n─" * 3)
     print("ETAPA 2: TREINO DO RANDOM FOREST")
     print("─" * 60)
 
@@ -308,7 +308,7 @@ def train(image_path):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def predict(clf, image_path):
-    print("\n─" * 60)
+    print("\n─" * 3)
     print("ETAPA 3: PREDIÇÃO EM TODA A IMAGEM")
     print("─" * 60)
 
@@ -373,7 +373,7 @@ def predict(clf, image_path):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def vectorize(pred_path):
-    print("\n─" * 60)
+    print("\n─" * 3)
     print("ETAPA 4: VETORIZAÇÃO + LIMPEZA MORFOLÓGICA")
     print("─" * 60)
 
